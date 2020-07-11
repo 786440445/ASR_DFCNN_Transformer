@@ -1,8 +1,10 @@
 import os, sys
 
 from random import shuffle
-from util.wav_util import *
+from src.end2end.data_util import DataUtil
+
 from util.data_util import *
+from util.wav_util import *
 from util.const import Const
 
 
@@ -12,12 +14,11 @@ class dataloader():
         self.batch_size = train_args.batch_size
         self.feature_dim = train_args.feature_dim
         self.feature_max_length = train_args.feature_max_length
-        self.data_type = train_args.data_type
+        self.mode = train_args.mode
         self.data_length = train_args.data_length
         self.shuffle = train_args.shuffle
 
         self.data_path = Const.SpeechDataPath
-
         self.thchs30 = data_args.thchs30
         self.aishell = data_args.aishell
         self.stcmd = data_args.stcmd
@@ -25,75 +26,55 @@ class dataloader():
         self.aidatatang_1505 = data_args.aidatatang_1505
         self.prime = data_args.prime
         self.noise = data_args.noise
+
         self.lfr_m = data_args.lfr_m
         self.lfr_n = data_args.lfr_n
 
-        self.path_lst = []
-        self.pny_lst = []
-        self.han_lst = []
-        self.source_init()
+        self.acoustic_vocab_size, self.pinyin2index, self.inde2pinyin = get_acoustic_vocab_list()
+        self.language_vocab_size, self.word2index, self.index2word = get_language_vocab_list()
 
-    def source_init(self):
+        self.data = DataUtil(train_args, data_args)
+
+        self.path_lst = self.data.path_lst
+        self.pny_lst = self.data.pny_lst
+        self.han_lst = self.data.han_lst
+
+    def pny2id(self, line):
         """
-        txt文件初始化，加载
+        拼音转向量 one-hot embedding，没有成功在vocab中找到索引抛出异常，交给上层处理
+        :param line:
+        :param vocab:
         :return:
         """
-        print('get source list...')
-        read_files = []
-        if self.data_type == 'train':
-            if self.thchs30 == True:
-                read_files.append('thchs_train.txt')
-            if self.aishell == True:
-                read_files.append('aishell_train.txt')
-            if self.stcmd == True:
-                read_files.append('stcmd_train.txt')
-            if self.aidatatang == True:
-                read_files.append('aidatatang_train.txt')
-            if self.aidatatang_1505 == True:
-                read_files.append('aidatatang_1505_train.txt')
-            if self.prime == True:
-                read_files.append('prime.txt')
-            if self.noise == True:
-                read_files.append('noise_data.txt')
+        try:
+            line = line.strip()
+            line = line.split(' ')
+            return [self.pinyin2index[pin] for pin in line]
+        except ValueError:
+            raise ValueError
 
-        elif self.data_type == 'dev':
-            if self.thchs30 == True:
-                read_files.append('thchs_dev.txt')
-            if self.aishell == True:
-                read_files.append('aishell_dev.txt')
-            if self.stcmd == True:
-                read_files.append('stcmd_dev.txt')
-            if self.aidatatang == True:
-                read_files.append('aidatatang_dev.txt')
-            if self.aidatatang_1505 == True:
-                read_files.append('aidatatang_1505_dev.txt')
-
-        elif self.data_type == 'test':
-            if self.thchs30 == True:
-                read_files.append('thchs_test.txt')
-            if self.aishell == True:
-                read_files.append('aishell_test.txt')
-            if self.stcmd == True:
-                read_files.append('stcmd_test.txt')
-            if self.aidatatang == True:
-                read_files.append('aidatatang_test.txt')
-            if self.aidatatang_1505 == True:
-                read_files.append('aidatatang_1505_test.txt')
-
-        for file in read_files:
-            print('load ', file, ' data...')
-            sub_file = os.path.join('data', file)
-            data = pd.read_table(sub_file, header=None)
-            paths = data.iloc[:, 0].tolist()
-            pny = data.iloc[:, 1].tolist()
-            hanzi = data.iloc[:, 2].tolist()
-            self.path_lst.extend(paths)
-            self.pny_lst.extend(pny)
-            self.han_lst.extend(hanzi)
-        if self.data_length:
-            self.path_lst = self.path_lst[:self.data_length]
-            self.pny_lst = self.pny_lst[:self.data_length]
-            self.han_lst = self.han_lst[:self.data_length]
+    def han2id(self, line):
+        """
+        文字转向量 one-hot embedding，没有成功在vocab中找到索引抛出异常，交给上层处理
+        :param line:
+        :param vocab:
+        :return:
+        """
+        try:
+            line = line.strip()
+            res = []
+            for han in line:
+                if han == Const.PAD_FLAG:
+                    res.append(Const.PAD)
+                elif han == Const.SOS_FLAG:
+                    res.append(Const.SOS)
+                elif han == Const.EOS_FLAG:
+                    res.append(Const.EOS)
+                else:
+                    res.append(self.word2index[han])
+            return res
+        except ValueError:
+            raise ValueError
 
     def get_fbank_and_pinyin_data(self, index):
         """
@@ -112,7 +93,7 @@ class dataloader():
                 compute_fbank_from_file(noise_file)
             input_data = fbank.reshape([fbank.shape[0], fbank.shape[1], 1])
             data_length = input_data.shape[0] // 8 + 1
-            label = pny2id(self.pny_lst[index], acoustic_vocab)
+            label = self.pny2id(self.pny_lst[index])
             label = np.array(label)
             len_label = len(label)
             # 将错误数据进行抛出异常,并处理
@@ -136,7 +117,7 @@ class dataloader():
             noise_file = Const.NoiseOutPath + self.path_lst[index]
             input_data = compute_fbank_from_file(file, feature_dim=self.feature_dim) if os.path.isfile(file) else \
                 compute_fbank_from_file(noise_file, feature_dim=self.feature_dim)
-            label = han2id(self.han_lst[index], hanzi_vocab)
+            label = self.han2id(self.han_lst[index])
             input_label = [Const.SOS] + label
             target_label = label + [Const.EOS]
             # 将错误数据进行抛出异常,并处理
@@ -215,9 +196,9 @@ class dataloader():
             label_data = []
             for i in index_list:
                 try:
-                    py_vec = pny2id(self.pny_lst[i], acoustic_vocab)\
+                    py_vec = self.pny2id(self.pny_lst[i])\
                              + [0] * (max_len - len(self.pny_lst[i].strip().split(' ')))
-                    han_vec = han2id(self.han_lst[i], language_vocab) + [0] * (max_len - len(self.han_lst[i].strip()))
+                    han_vec = self.han2id(self.han_lst[i]) + [0] * (max_len - len(self.han_lst[i].strip()))
                     input_data.append(py_vec)
                     label_data.append(han_vec)
                 except ValueError:
@@ -240,9 +221,9 @@ class dataloader():
             label_batch = self.han_lst[begin:end]
             max_len = max([len(line) for line in input_batch])
             input_batch = np.array(
-                [pny2id(line, acoustic_vocab) + [0] * (max_len - len(line)) for line in input_batch])
+                [self.pny2id(line) + [0] * (max_len - len(line)) for line in input_batch])
             label_batch = np.array(
-                [han2id(line, language_vocab) + [0] * (max_len - len(line)) for line in label_batch])
+                [self.han2id(line) + [0] * (max_len - len(line)) for line in label_batch])
             yield input_batch, label_batch
 
     def get_transformer_batch(self):
@@ -293,15 +274,6 @@ class dataloader():
                 yield inputs
         pass
 
-    def get_transformer_data_from_file(self, file):
-        try:
-            fbank = compute_fbank_from_file(file, feature_dim=self.feature_dim)
-            input_data = build_LFR_features(fbank, self.lfr_m, self.lfr_n)
-            input_data = np.expand_dims(input_data, axis=0)
-            return input_data
-        except ValueError:
-            raise ValueError
-
     def get_transformer_data(self, index):
         """
         获取一条语音数据的Fbank信息
@@ -314,11 +286,20 @@ class dataloader():
         try:
             # Fbank特征提取函数(从feature_python)
             file = os.path.join(self.data_path, self.path_lst[index])
-            Y = han2id(self.han_lst[index], hanzi_vocab)
+            Y = self.han2id(self.han_lst[index])
             noise_file = os.path.join(Const.NoiseOutPath, self.path_lst[index])
             X = self.get_transformer_data_from_file(file) if os.path.isfile(file) else \
                 self.get_transformer_data_from_file(noise_file)
             return X, Y
+        except ValueError:
+            raise ValueError
+
+    def get_transformer_data_from_file(self, file):
+        try:
+            fbank = compute_fbank_from_file(file, feature_dim=self.feature_dim)
+            input_data = build_LFR_features(fbank, self.lfr_m, self.lfr_n)
+            input_data = np.expand_dims(input_data, axis=0)
+            return input_data
         except ValueError:
             raise ValueError
 

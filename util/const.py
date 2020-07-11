@@ -19,13 +19,14 @@ import os
 # NoiseOutPath 噪声文件目录
 # '../../../speech_data/noise_data'
 
-ServerId = 0
+ServerId = 3
 
 
 class ServerIndex(IntEnum):
     Linux = 0
     Server = 1
     Mac = 2
+    Windows = 3
 
 
 class Const:
@@ -67,7 +68,10 @@ class Const:
     elif ServerId == ServerIndex.Mac:
         SpeechDataPath = '../../../speech_data/'
         NoiseOutPath = '../../../speech_data/noise_data/'
+    elif ServerId == ServerIndex.Windows:
+        SpeechDataPath = r'E:\speech_data'
+        NoiseOutPath = '../../../speech_data/noise_data/'
 
 
-if ServerId == ServerIndex.Server:
-    os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+if ServerId == ServerIndex.Windows:
+    os.environ["CUDA_VISIBLE_DEVICES"] = "0"

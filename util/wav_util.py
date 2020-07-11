@@ -20,7 +20,8 @@ def compute_fbank_from_api(signal, sample_rate, nfilt=200):
     """
     Fbank特征提取, 结果进行零均值归一化操作
     :param wav_file: 文件路径
-    :return: feature向量
+    :return: feature向量y
+
     """
     feature = logfbank(signal, sample_rate, nfilt=nfilt)
     feature = preprocessing.scale(feature)

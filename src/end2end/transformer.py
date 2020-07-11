@@ -135,7 +135,6 @@ def multihead_attention(queries, keys,
     with tf.variable_scope(scope, reuse=reuse):
         if d_model is None:
             d_model = queries.get_shape().as_list[-1]
-
         # Linear projections
         Q = tf.layers.dense(queries, d_model, activation=tf.nn.relu, use_bias=False)  # (N, T_q, C)
         K = tf.layers.dense(keys, d_model, activation=tf.nn.relu, use_bias=False)  # (N, T_k, C)

@@ -1,10 +1,16 @@
+import os
+home_dir = os.getcwd()
+
+print(home_dir)
+from pathlib import Path
 import difflib
 import numpy as np
 from keras import backend as K
 import pandas as pd
 import tensorflow as tf
-from lm_and_am.hparams import DataHparams
-from lm_and_am.const import Const
+from util.hparams import DataHparams
+from util.const import Const
+
 
 hparams = DataHparams()
 parser = hparams.parser
@@ -68,72 +74,28 @@ def downsample(feature, contact):
     return feature
 
 
-def pny2id(line, vocab):
-    """
-    拼音转向量 one-hot embedding，没有成功在vocab中找到索引抛出异常，交给上层处理
-    :param line:
-    :param vocab:
-    :return:
-    """
-    try:
-        line = line.strip()
-        line = line.split(' ')
-        return [vocab.index(pin) for pin in line]
-    except ValueError:
-        raise ValueError
-
-
-def han2id(line, vocab):
-    """
-    文字转向量 one-hot embedding，没有成功在vocab中找到索引抛出异常，交给上层处理
-    :param line:
-    :param vocab:
-    :return:
-    """
-    try:
-        line = line.strip()
-        res = []
-        for han in line:
-            if han == Const.PAD_FLAG:
-                res.append(Const.PAD)
-            elif han == Const.SOS_FLAG:
-                res.append(Const.SOS)
-            elif han == Const.EOS_FLAG:
-                res.append(Const.EOS)
-            else:
-                res.append(vocab.index(han))
-        return res
-    except ValueError:
-        raise ValueError
-
-
 # 声学模型, 语料库大小
 def get_acoustic_vocab_list():
-    text = pd.read_table(hp.pinyin_dict, header=None)
+    text = pd.read_table(Path(home_dir).joinpath(hp.pinyin_dict), header=None)
     symbol_list = text.iloc[:, 0].tolist()
     symbol_list.append('_')
     symbol_num = len(symbol_list)
-    return symbol_num, symbol_list
+    pinyin2index = dict([pinyin, index] for index, pinyin in enumerate(symbol_list))
+    index2pinyin = dict([index, pinyin] for index, pinyin in enumerate(symbol_list))
+    return symbol_num, pinyin2index, index2pinyin
 
 
 # 语言模型, 语料库大小
 def get_language_vocab_list():
-    text = pd.read_table(hp.hanzi_dict, header=None)
-    list_lm = text.iloc[:, 0].tolist()
-    list_lm.append('_')
-    hanzi_num = len(list_lm)
-    return hanzi_num, list_lm
-
-
-# Transformer中的加载所有的汉字类别
-def get_hz_vocab_list():
-    text = pd.read_table(hp.hanzi_dict, header=None)
-    list_hanzi = text.iloc[:, 0].tolist()
-    list = Const.PAD_FLAG + ' ' + Const.SOS_FLAG + ' ' + Const.EOS_FLAG
-    list = list.split(' ')
-    list.extend(list_hanzi)
-    hanzi_num = len(list)
-    return hanzi_num, list
+    pd_data = pd.read_csv(Path(home_dir).joinpath(hp.hanzi_dict), header=None)
+    hanzi_list = pd_data.T.values.tolist()[0]
+    word_list = Const.PAD_FLAG + ' ' + Const.SOS_FLAG + ' ' + Const.EOS_FLAG
+    word_list = word_list.split(' ')
+    word_list.extend(hanzi_list)
+    word_num = len(word_list)
+    word2index = dict([word, index] for index, word in enumerate(word_list))
+    index2word = dict([index, word] for index, word in enumerate(word_list))
+    return word_num, word2index, index2word
 
 
 # word error rate------------------------------------
@@ -161,9 +123,3 @@ def decode_ctc(num_result, input_length):
     tf.reset_default_graph()  # 然后重置tf图，这句很关键
     r1 = r1[0]
     return r1
-
-
-acoustic_vocab_size, acoustic_vocab = get_acoustic_vocab_list()
-language_vocab_size, language_vocab = get_language_vocab_list()
-
-hanzi_vocab_size, hanzi_vocab = get_hz_vocab_list()
