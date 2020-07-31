@@ -5,3 +5,4 @@ model_and_log/
 data/
 src/end2end/log
 src/end2end/model
+*.pyc
