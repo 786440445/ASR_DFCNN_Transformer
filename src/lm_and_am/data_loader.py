@@ -1,226 +1,160 @@
+from keras.utils import Sequence
+import numpy as np
+import pandas as pd
+import math
 import os
+import soundfile as sf
 
 from random import shuffle
-from util.wav_util import *
-from util.data_util import *
+from util.const import Const
+from util.wav_util import compute_fbank_from_api
+from util.data_util import DataUtil
+
+home_dir = os.getcwd()
+cur_path = os.path.dirname(__file__)
 
 
-def prepare_data(type, hp, shuffle=True, length=None,):
-    """
-    数据准备接口
-    :param type: 数据类型
-    :param batch_size: batch大小
-    :param is_shuffle: 是否乱序
-    :param length: 数据长度
-    :return:
-    """
-    # 0.准备训练所需数据------------------------------
-    hparams = DataHparams()
-    parser = hparams.parser
-    data_hp = parser.parse_args()
+class DataLoader():
+    def __init__(self, data_util, data_args, train_args):
+        self.batch_size = train_args.batch_size
+        self.feature_dim = train_args.feature_dim
+        self.feature_max_length = train_args.feature_max_length
 
-    data_hp.data_type = type
-    data_hp.shuffle = shuffle
-    data_hp.data_length = length
-
-    batch_size = hp.batch_size
-    feature_dim = hp.feature_dim
-    data = GetData(data_hp, batch_size, feature_dim)
-    return data
-
-
-class GetData():
-    def __init__(self, data_args, batch_size, feature_dim, feature_max_length=1600):
-        self.start = 0
-        self.batch_size = batch_size
-        self.feature_dim = feature_dim
-        self.feature_max_length = feature_max_length
-
-        self.data_type = data_args.data_type
-        self.data_path = Const.SpeechDataPath
-
-        self.thchs30 = data_args.thchs30
-        self.aishell = data_args.aishell
-        self.stcmd = data_args.stcmd
-        self.aidatatang = data_args.aidatatang
-        self.aidatatang_1505 = data_args.aidatatang_1505
-        self.prime = data_args.prime
-
-        self.noise = data_args.noise
-        self.data_length = data_args.data_length
-        self.shuffle = data_args.shuffle
-
+        self.pinyin_dict = data_args.pinyin_dict
+        self.hanzi_dict = data_args.hanzi_dict
         self.lfr_m = data_args.lfr_m
         self.lfr_n = data_args.lfr_n
 
-        self.path_lst = []
-        self.pny_lst = []
-        self.han_lst = []
-        self.source_init()
+        self.acoustic_vocab_size, self.pinyin2index, self.inde2pinyin = self.get_acoustic_vocab_list()
+        self.language_vocab_size, self.word2index, self.index2word = self.get_language_vocab_list()
 
-    def source_init(self):
+        self.data = data_util
+
+        self.path_lst = self.data.path_lst
+        self.pny_lst = self.data.pny_lst
+        self.han_lst = self.data.han_lst
+        self.shuffle = data_util.shuffle
+        self.indexes = np.arange(len(self.path_lst))
+
+    def pny2id(self, line):
         """
-        txt文件初始化，加载
+        拼音转向量 one-hot embedding，没有成功在vocab中找到索引抛出异常，交给上层处理
+        :param line:
+        :param vocab:
         :return:
-        """
-        print('get source list...')
-        read_files = []
-        if self.data_type == 'train':
-            if self.thchs30 == True:
-                read_files.append('thchs_train.txt')
-            if self.aishell == True:
-                read_files.append('aishell_train.txt')
-            if self.stcmd == True:
-                read_files.append('stcmd_train.txt')
-            if self.aidatatang == True:
-                read_files.append('aidatatang_train.txt')
-            if self.aidatatang_1505 == True:
-                read_files.append('aidatatang_1505_train.txt')
-            if self.prime == True:
-                read_files.append('prime.txt')
-            if self.noise == True:
-                read_files.append('noise_data.txt')
-
-        elif self.data_type == 'dev':
-            if self.thchs30 == True:
-                read_files.append('thchs_dev.txt')
-            if self.aishell == True:
-                read_files.append('aishell_dev.txt')
-            if self.stcmd == True:
-                read_files.append('stcmd_dev.txt')
-            if self.aidatatang == True:
-                read_files.append('aidatatang_dev.txt')
-            if self.aidatatang_1505 == True:
-                read_files.append('aidatatang_1505_dev.txt')
-
-        elif self.data_type == 'test':
-            if self.thchs30 == True:
-                read_files.append('thchs_test.txt')
-            if self.aishell == True:
-                read_files.append('aishell_test.txt')
-            if self.stcmd == True:
-                read_files.append('stcmd_test.txt')
-            if self.aidatatang == True:
-                read_files.append('aidatatang_test.txt')
-            if self.aidatatang_1505 == True:
-                read_files.append('aidatatang_1505_test.txt')
-
-        for file in read_files:
-            print('load ', file, ' data...')
-            sub_file = '../data/' + file
-            data = pd.read_table(sub_file, header=None)
-            paths = data.iloc[:, 0].tolist()
-            pny = data.iloc[:, 1].tolist()
-            hanzi = data.iloc[:, 2].tolist()
-            self.path_lst.extend(paths)
-            self.pny_lst.extend(pny)
-            self.han_lst.extend(hanzi)
-        if self.data_length:
-            self.path_lst = self.path_lst[:self.data_length]
-            self.pny_lst = self.pny_lst[:self.data_length]
-            self.han_lst = self.han_lst[:self.data_length]
-
-    def get_fbank_and_pinyin_data(self, index):
-        """
-        获取一条语音数据的Fbank与拼音信息
-        :param index: 索引位置
-        :return:
-            input_data: 语音特征数据
-            data_length: 语音特征数据长度
-            label: 语音标签的向量
         """
         try:
-            # Fbank特征提取函数(从feature_python)
-            file = os.path.join(self.data_path, self.path_lst[index])
-            noise_file = Const.NoiseOutPath + self.path_lst[index]
-            fbank = compute_fbank_from_file(file) if os.path.isfile(file) else\
-                compute_fbank_from_file(noise_file)
-            input_data = fbank.reshape([fbank.shape[0], fbank.shape[1], 1])
-            data_length = input_data.shape[0] // 8 + 1
-            label = pny2id(self.pny_lst[index], acoustic_vocab)
-            label = np.array(label)
-            len_label = len(label)
-            # 将错误数据进行抛出异常,并处理
-            if input_data.shape[0] > self.feature_max_length:
-                raise ValueError
-            if len_label > 64 or len_label > data_length:
-                raise ValueError
-            return input_data, data_length, label, len_label
-        except ValueError:
+            line = line.strip()
+            line = line.split(' ')
+            ret = []
+            for pin in line:
+                id = self.pinyin2index[pin]
+                ret.append(id)
+            return ret
+        except Exception as e:
             raise ValueError
 
-    def get_fbank_and_hanzi_data(self, index):
-        '''
-        获取一条语音数据的Fbank与拼音信息
-        :param index: 索引位置
-        :return: 返回相应信息
-        '''
-        try:
-            # Fbank特征提取函数(从feature_python)
-            file = os.path.join(self.data_path, self.path_lst[index])
-            noise_file = Const.NoiseOutPath + self.path_lst[index]
-            input_data = compute_fbank_from_file(file, feature_dim=self.feature_dim) if os.path.isfile(file) else \
-                compute_fbank_from_file(noise_file, feature_dim=self.feature_dim)
-            label = han2id(self.han_lst[index], hanzi_vocab)
-            input_label = [Const.SOS] + label
-            target_label = label + [Const.EOS]
-            # 将错误数据进行抛出异常,并处理
-            return input_data, np.array(target_label), np.array(input_label)
-        except ValueError:
-            raise ValueError
-
-    def get_am_batch(self):
+    def han2id(self, line):
         """
-        一个batch数据生成器，充当fit_general的参数
+        文字转向量 one-hot embedding，没有成功在vocab中找到索引抛出异常，交给上层处理
+        :param line:
+        :param vocab:
         :return:
-            inputs: 输入数据
-            outputs: 输出结果
         """
-        # 数据列表长度
-        shuffle_list = [i for i in range(len(self.path_lst))]
-        while True:
-            if self.shuffle == True:
-                shuffle(shuffle_list)
-            # batch_wav_data.shape = (10 1600 200 1), inputs_length.shape = (10,)
-            batch_wav_data = np.zeros((self.batch_size, self.feature_max_length, 200, 1), dtype=np.float)
-            # batch_label_data.shape = (10 64) ,label_length.shape = (10,)
-            batch_label_data = np.zeros((self.batch_size, 64), dtype=np.int64)
-            # length
-            input_length = []
-            label_length = []
-            error_count = []
-            for i in range(len(self.path_lst) // self.batch_size):
-                begin = i * self.batch_size
-                end = begin + self.batch_size
-                sub_list = shuffle_list[begin:end]
-                for index in sub_list:
-                    try:
-                        # 随机选取一个batch
-                        input_data, data_length, label, len_label, = self.get_fbank_and_pinyin_data(index)
-                        input_length.append([data_length])
-                        label_length.append([len_label])
-                        batch_wav_data[i, 0:len(input_data)] = input_data
-                        batch_label_data[i, 0:len_label] = label
-                    except ValueError:
-                        error_count.append(i)
-                        continue
+        try:
+            line = line.strip()
+            res = []
+            for han in line:
+                if han == Const.PAD_FLAG:
+                    res.append(Const.PAD)
+                elif han == Const.SOS_FLAG:
+                    res.append(Const.SOS)
+                elif han == Const.EOS_FLAG:
+                    res.append(Const.EOS)
+                else:
+                    res.append(self.word2index[han])
+            return res
+        except Exception as e:
+            raise ValueError
 
-                # 删除异常语音信息
-                if error_count != []:
-                    batch_wav_data = np.delete(batch_wav_data, error_count, axis=0)
-                    batch_label_data = np.delete(batch_label_data, error_count, axis=0)
+    # 声学模型, 语料库大小
+    def get_acoustic_vocab_list(self):
+        text = pd.read_table(os.path.join(self.pinyin_dict), header=None)
+        symbol_list = text.iloc[:, 0].tolist()
+        symbol_list.append('_')
+        symbol_num = len(symbol_list)
+        pinyin2index = dict([pinyin, index] for index, pinyin in enumerate(symbol_list))
+        index2pinyin = dict([index, pinyin] for index, pinyin in enumerate(symbol_list))
+        return symbol_num, pinyin2index, index2pinyin
 
-                label_length = np.mat(label_length)
-                input_length = np.mat(input_length)
-                # CTC 输入长度0-1600//8+1
-                # label label真实长度
-                inputs = {'the_inputs': batch_wav_data,
-                          'the_labels': batch_label_data,
-                          'input_length': input_length,
-                          'label_length': label_length,
-                          }
-                outputs = {'ctc': np.zeros((self.batch_size - len(error_count), 1), dtype=np.float32)}
-                yield inputs, outputs
+    # 语言模型, 语料库大小
+    def get_language_vocab_list(self):
+        pd_data = pd.read_csv(os.path.join(home_dir, self.hanzi_dict), header=None)
+        hanzi_list = pd_data.T.values.tolist()[0]
+        word_list = Const.PAD_FLAG + ' ' + Const.SOS_FLAG + ' ' + Const.EOS_FLAG
+        word_list = word_list.split(' ')
+        word_list.extend(hanzi_list)
+        word_num = len(word_list)
+        word2index = dict([word, index] for index, word in enumerate(word_list))
+        index2word = dict([index, word] for index, word in enumerate(word_list))
+        return word_num, word2index, index2word
+
+    def data_generation(self, batch_datas, py_label_datas):
+        # batch_wav_data.shape = (10 1600 200 1), inputs_length.shape = (10,)
+        batch_wav_data = np.zeros((self.batch_size, self.feature_max_length, 200, 1), dtype=np.float)
+        # batch_label_data.shape = (10 64) ,label_length.shape = (10,)
+        batch_label_data = np.zeros((self.batch_size, 64), dtype=np.int64)
+        # length
+        input_length = []
+        label_length = []
+        error_count = []
+        # 随机选取batch_size个wav数据组成一个batch_wav_data
+        for i, path in enumerate(batch_datas):
+            # Fbank特征提取函数(从feature_python)
+            try:
+                file1 = os.path.join(Const.SpeechDataPath, path)
+                file2 = os.path.join(Const.NoiseOutPath, path)
+                if os.path.isfile(file1):
+                    signal, sample_rate = sf.read(file1)
+                elif os.path.isfile(file2):
+                    signal, sample_rate = sf.read(file2)
+                else:
+                    print("file path Error")
+                    return 0
+                fbank = compute_fbank_from_api(signal, sample_rate)
+                input_data = fbank.reshape([fbank.shape[0], fbank.shape[1], 1])
+                data_length = input_data.shape[0] // 8 + 1
+                label = self.pny2id(py_label_datas[i])
+                label = np.array(label)
+                len_label = len(label)
+                # 将错误数据进行抛出异常,并处理
+                if input_data.shape[0] > self.feature_max_length:
+                    raise ValueError
+                if len_label > 64 or len_label > data_length:
+                    raise ValueError
+
+                input_length.append([data_length])
+                label_length.append([len_label])
+                batch_wav_data[i, 0:len(input_data)] = input_data
+                batch_label_data[i, 0:len_label] = label
+            except ValueError:
+                error_count.append(i)
+                continue
+        # 删除异常语音信息
+        if error_count != []:
+            batch_wav_data = np.delete(batch_wav_data, error_count, axis=0)
+            batch_label_data = np.delete(batch_label_data, error_count, axis=0)
+        label_length = np.mat(label_length)
+        input_length = np.mat(input_length)
+        # CTC 输入长度0-1600//8+1
+        # label label真实长度
+        inputs = {'the_inputs': batch_wav_data,
+                  'the_labels': batch_label_data,
+                  'input_length': input_length,
+                  'label_length': label_length,
+                  }
+        outputs = {'ctc': np.zeros((self.batch_size - len(error_count), 1), dtype=np.float32)}
+        return inputs, outputs
 
     def get_lm_batch(self):
         '''
@@ -239,10 +173,11 @@ class GetData():
             input_data = []
             label_data = []
             for i in index_list:
+                print(self.pny_lst[i])
+                print(self.han_lst[i])
                 try:
-                    py_vec = pny2id(self.pny_lst[i], acoustic_vocab)\
-                             + [0] * (max_len - len(self.pny_lst[i].strip().split(' ')))
-                    han_vec = han2id(self.han_lst[i], language_vocab) + [0] * (max_len - len(self.han_lst[i].strip()))
+                    py_vec = self.pny2id(self.pny_lst[i]) + [0] * (max_len - len(self.pny_lst[i].strip().split(' ')))
+                    han_vec = self.han2id(self.han_lst[i]) + [0] * (max_len - len(self.han_lst[i].strip()))
                     input_data.append(py_vec)
                     label_data.append(han_vec)
                 except ValueError:
@@ -250,7 +185,6 @@ class GetData():
             input_data = np.array(input_data)
             label_data = np.array(label_data)
             yield input_data, label_data
-        pass
 
     def get_lm_batch_old(self):
         '''
@@ -265,88 +199,25 @@ class GetData():
             label_batch = self.han_lst[begin:end]
             max_len = max([len(line) for line in input_batch])
             input_batch = np.array(
-                [pny2id(line, acoustic_vocab) + [0] * (max_len - len(line)) for line in input_batch])
+                [self.pny2id(line) + [0] * (max_len - len(line)) for line in input_batch])
             label_batch = np.array(
-                [han2id(line, language_vocab) + [0] * (max_len - len(line)) for line in label_batch])
+                [self.han2id(line) + [0] * (max_len - len(line)) for line in label_batch])
             yield input_batch, label_batch
 
-    def get_transformer_batch(self):
-        '''
-        # transformer训练batch数据
-        :return:
-        '''
-        wav_length = len(self.path_lst)
-        shuffle_list = [i for i in range(wav_length)]
-        if self.shuffle == True:
-            shuffle(shuffle_list)
-        while 1:
-            # 随机选取batch_size个wav数据组成一个batch_wav_data
-            for i in range(wav_length // self.batch_size):
-                # length
-                wav_data_lst = []
-                target_label_lst = []
-                input_label_lst = []
-                error_count = []
-                begin = i * self.batch_size
-                end = begin + self.batch_size
-                sub_list = shuffle_list[begin:end]
-                # 随机选取一个batch
-                for index in sub_list:
-                    try:
-                        input_data, target_label, input_label = self.get_fbank_and_hanzi_data(index)
-                        input_data = build_LFR_features(input_data, self.lfr_m, self.lfr_n)
-                        wav_data_lst.append(input_data)
-                        target_label_lst.append(target_label)
-                        input_label_lst.append(input_label)
-                    except ValueError:
-                        error_count.append(i)
-                        continue
-                # label为decoder的输入，ground_truth为decoder的输出, label_data为decoder的输入
-                pad_wav_data, input_length = wav_padding(wav_data_lst)
-                pad_label_data, _ = label_padding(input_label_lst, Const.EOS)
-                pad_target_data, _ = label_padding(target_label_lst, Const.IGNORE)
-                # 删除异常语音信息
-                if error_count != []:
-                    pad_wav_data = np.delete(pad_wav_data, error_count, axis=0)
-                    pad_label_data = np.delete(pad_label_data, error_count, axis=0)
-                    pad_target_data = np.delete(pad_target_data, error_count, axis=0)
+    def __getitem__(self, index):
+        # 生成每个batch数据，这里就根据自己对数据的读取方式进行发挥了
+        # 生成batch_size个索引
+        batch_indexs = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+        # 根据索引获取datas集合中的数据
+        batch_datas = [self.path_lst[k] for k in batch_indexs]
+        py_label_datas = [self.pny_lst[k] for k in batch_indexs]
+        # 生成数据
+        X, y = self.data_generation(batch_datas, py_label_datas)
+        return X, y
 
-                inputs = {'the_inputs': pad_wav_data,
-                          'the_labels': pad_label_data,
-                          'ground_truth': pad_target_data,
-                          }
-                yield inputs
-        pass
+    def __len__(self):
+        # 计算每一个epoch的迭代次数
+        return math.ceil(len(self.path_lst) / float(self.batch_size))
 
-    def get_transformer_data_from_file(self, file):
-        try:
-            fbank = compute_fbank_from_file(file, feature_dim=self.feature_dim)
-            input_data = build_LFR_features(fbank, self.lfr_m, self.lfr_n)
-            input_data = np.expand_dims(input_data, axis=0)
-            return input_data
-        except ValueError:
-            raise ValueError
-
-    def get_transformer_data(self, index):
-        """
-        获取一条语音数据的Fbank信息
-        :param index: 索引位置
-        :return:
-            input_data: 语音特征数据
-            data_length: 语音特征数据长度
-            label: 语音标签的向量
-        """
-        try:
-            # Fbank特征提取函数(从feature_python)
-            file = os.path.join(self.data_path, self.path_lst[index])
-            Y = han2id(self.han_lst[index], hanzi_vocab)
-            noise_file = os.path.join(Const.NoiseOutPath, self.path_lst[index])
-            X = self.get_transformer_data_from_file(file) if os.path.isfile(file) else \
-                self.get_transformer_data_from_file(noise_file)
-            return X, Y
-        except ValueError:
-            raise ValueError
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     pass

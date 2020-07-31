@@ -1,3 +1,6 @@
+import os
+home_dir = os.getcwd()
+
 from keras.layers import Input, Conv2D, BatchNormalization, MaxPooling2D, GlobalAveragePooling2D
 from keras.layers import Reshape, Dense, Dropout, Lambda
 from keras.optimizers import Adam
@@ -5,12 +8,12 @@ from keras import backend as K
 from keras.models import Model
 from keras.utils import multi_gpu_model
 import numpy as np
-from util.data_util import decode_ctc, acoustic_vocab_size
-from lm_and_am.const import Const
+from util.const import Const
+from util.utils import decode_ctc
 
 
 class CNNCTCModel():
-    def __init__(self, args):
+    def __init__(self, args, acoustic_vocab_size):
         # 神经网络最终输出的每一个字符向量维度的大小
         self.vocab_size = acoustic_vocab_size
         self.gpu_nums = args.gpu_nums
@@ -82,10 +85,11 @@ class CNNCTCModel():
         return decode_ctc(pred, length)
 
     def load_model(self, model):
-        self.ctc_model.load_weights(Const.AmModelFolder + model + '.hdf5')
+        self.ctc_model.load_weights(os.path.join(home_dir, 'model_and_log\\logs_am\\checkpoint', model + '.hdf5'))
 
     def save_model(self, model):
-        self.ctc_model.save_weights(Const.AmModelFolder + model + '.hdf5')
+        self.ctc_model.save_weights(os.path.join(home_dir, Const.AmModelFolder + model + '.hdf5'))
+
 
 
 # ============================模型组件=================================
@@ -93,25 +97,31 @@ def conv1x1(size):
     return Conv2D(size, (1, 1), use_bias=True, activation='relu',
                   padding='same', kernel_initializer='he_normal')
 
+
 def conv2d(size):
     return Conv2D(size, (3, 3), use_bias=True, activation='relu',
                   padding='same', kernel_initializer='he_normal')
 
+
 def norm(x):
     return BatchNormalization(axis=-1)(x)
+
 
 def maxpool(x):
     return MaxPooling2D(pool_size=(2, 2), strides=None, padding='valid')(x)
 
+
 def dense(units, activation='relu'):
     return Dense(units, activation=activation, use_bias=True,
                  kernel_initializer='he_normal')
+
 
 def dropout(x, num):
     if num == None:
         return x
     else:
         return Dropout(num)(x)
+
 
 def cnn_cell(size, x, nin_flag=False, nin_size=32, pool=True):
     x = norm(conv2d(size)(x))
@@ -122,12 +132,15 @@ def cnn_cell(size, x, nin_flag=False, nin_size=32, pool=True):
         x = maxpool(x)
     return x
 
+
 def nin(x, size):
     x = norm(conv1x1(size)(x))
     return x
 
+
 def global_avg_pool(x):
     return GlobalAveragePooling2D(data_format='channels_last')(x)
+
 
 # CTC_loss计算公式,通过K.ctc_batch_cost传入四个参数:
 # labels： 真实y值标签

@@ -6,7 +6,7 @@ from lm_and_am.test import pred_pinyin
 from lm_and_am.hparams import AmHparams, LmHparams, TransformerHparams
 from lm_and_am.model.language_model import Language_Model
 from lm_and_am.model import Transformer
-from util.data_util import language_vocab, hanzi_vocab, han2id, GetEditDistance
+from util.utils import language_vocab, hanzi_vocab, han2id, GetEditDistance
 from lm_and_am.const import Const
 from lm_and_am.data_loader import prepare_data
 

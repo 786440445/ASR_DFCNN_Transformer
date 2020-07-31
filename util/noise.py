@@ -4,7 +4,6 @@ import os
 import random
 from tqdm import tqdm
 
-
 '''
 有色噪声定义
 返回：
@@ -121,7 +120,6 @@ def add_noise(signal_path, n_to_add=1, sample_rate=16000, out_path=None, dB='ran
                 if keep_bits:
                     from pydub import AudioSegment
                     signal = AudioSegment.from_wav(path)
-                    print(signal)
                     signal.export(path, format='wav', bitrate='128')
             else:
                 signal_added_list.append(signal_added)

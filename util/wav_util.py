@@ -3,15 +3,18 @@ import numpy as np
 import scipy.io.wavfile as wav
 import soundfile as sf
 from scipy.fftpack import fft
-from python_speech_features import logfbank
+from python_speech_features import logfbank, mfcc
 import matplotlib.pyplot as plt
 from sklearn import preprocessing
 
 from util.noise import add_noise
 
 
-def compute_fbank_from_file(file, feature_dim=200):
-    signal, sample_rate = sf.read(file)
+def compute_fbank_from_file(file, feature_dim=200, sf_flag=True):
+    if sf_flag:
+        signal, sample_rate = sf.read(file)
+    else:
+        signal, sample_rate = read_wav_data(file)
     feature = compute_fbank_from_api(signal, sample_rate, nfilt=feature_dim)
     return feature
 
@@ -24,22 +27,21 @@ def compute_fbank_from_api(signal, sample_rate, nfilt=200):
 
     """
     feature = logfbank(signal, sample_rate, nfilt=nfilt)
-    feature = preprocessing.scale(feature)
+    # feature = preprocessing.scale(feature)
     return feature
 
 
 def read_wav_data(filename):
-    wav = wave.open(filename, "rb") # 打开一个wav格式的声音文件流
-    num_frame = wav.getnframes() # 获取帧数
-    num_channel=wav.getnchannels() # 获取声道数
-    framerate=wav.getframerate() # 获取帧速率
-    num_sample_width=wav.getsampwidth() # 获取实例的比特宽度，即每一帧的字节数
-    str_data = wav.readframes(num_frame) # 读取全部的帧
-    wav.close() # 关闭流
-    wave_data = np.fromstring(str_data, dtype=np.short) # 将声音文件数据转换为数组矩阵形式
-    wave_data.shape = -1, num_channel # 按照声道数将数组整形，单声道时候是一列数组，双声道时候是两列的矩阵
-    wave_data = wave_data.T # 将矩阵转置
-    #wave_data = wave_data
+    wav = wave.open(filename, "rb")  # 打开一个wav格式的声音文件流
+    num_frame = wav.getnframes()  # 获取帧数
+    num_channel = wav.getnchannels()  # 获取声道数
+    framerate = wav.getframerate()  # 获取帧速率
+    num_sample_width = wav.getsampwidth()  # 获取实例的比特宽度，即每一帧的字节数
+    str_data = wav.readframes(num_frame)  # 读取全部的帧
+    wav.close()  # 关闭流
+    wave_data = np.fromstring(str_data, dtype=np.short)  # 将声音文件数据转换为数组矩阵形式
+    wave_data.shape = -1, num_channel  # 按照声道数将数组整形，单声道时候是一列数组，双声道时候是两列的矩阵
+    wave_data = wave_data.T  # 将矩阵转置
     return wave_data, framerate
 
 
@@ -127,7 +129,7 @@ def plot_time(signal, sample_rate):
 # 绘制频域图
 def plot_freq(signal, sample_rate, fft_size=512):
     xf = np.fft.rfft(signal, fft_size) / fft_size
-    freqs = np.linspace(0, sample_rate/2, fft_size/2 + 1)
+    freqs = np.linspace(0, sample_rate/2, int(fft_size/2 + 1))
     xfp = 20 * np.log10(np.clip(np.abs(xf), 1e-20, 1e100))
     plt.figure(figsize=(20, 5))
     plt.plot(freqs, xfp)
@@ -147,16 +149,26 @@ def plot_spectrogram(spec, note):
 
 
 if __name__ == "__main__":
-    file = "../../../speech_data/data_thchs30/data/A2_0.wav"
-    signal1, sample_rate = sf.read(file)
-    signal2 = add_noise(signal1, sample_rate=16000, n_to_add=1, dB='random', type_noise='0.0')
+    file = ["E:\\speech_data\\data_thchs30\\data\\A2_0.wav"]
+    signal1, sample_rate1 = sf.read(file[0])
+    print(signal1)
+    print(sample_rate1)
+    signal2, sample_rate2 = read_wav_data(file[0])
     signal2 = signal2[0]
+    print(signal2)
+    print(sample_rate2)
+    signal3, _ = add_noise(file, sample_rate=16000, n_to_add=1, dB='random', type_noise='random', keep_bits=False)
+    signal3 = signal3[0]
 
-    plot_time(signal1, sample_rate)
-    plot_time(signal2, sample_rate)
+    plot_time(signal1, sample_rate1)
+    plot_time(signal2, sample_rate2)
+    plot_time(signal3, sample_rate2)
 
-    plot_freq(signal1, sample_rate)
-    plot_freq(signal2, sample_rate)
+    plot_freq(signal1, sample_rate1)
+    plot_freq(signal2, sample_rate2)
+    plot_freq(signal3, sample_rate2)
+
+    plt.subplot(111)
 
     plt.show()
     # # sample_rate, signal1 = wav.read(file) # 读取的数字为[-2^15, 2^15]之间，除以2^15就可以转化为下面的方法

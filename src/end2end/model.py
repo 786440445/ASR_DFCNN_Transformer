@@ -5,7 +5,6 @@ sys.path.append(home_dir)
 import argparse
 import logging
 import warnings
-import numpy as np
 from datetime import datetime
 
 from src.end2end.transformer import *
@@ -17,13 +16,12 @@ parser = argparse.ArgumentParser()
 # 初始学习率为0.001,10epochs后设置为0.0001
 parser.add_argument('--gpu_nums', default=1, type=int)
 parser.add_argument('--mode', default='train', type=str)
-parser.add_argument('--lr', default=0.0001, type=int)
 parser.add_argument('--is_training', default=True, type=bool)
-parser.add_argument('--batch_size', default=16, type=int)
+parser.add_argument('--batch_size', default=10, type=int)
 parser.add_argument('--epochs', default=100, type=int)
 parser.add_argument('--feature_max_length', default=1600, type=int)
 parser.add_argument('--dimension', default=80, type=int)
-parser.add_argument('--shuffle', default='shuffle', type=str)
+parser.add_argument('--shuffle', default=True, type=bool)
 parser.add_argument('--data_length', default=None, type=int)
 parser.add_argument('--save_nums', default=3, type=int)
 parser.add_argument('--save_path', default='./model', type=str)
@@ -35,14 +33,15 @@ parser.add_argument('--num_blocks', default=6, type=int)
 parser.add_argument('--position_max_length', default=500, type=int)
 parser.add_argument('--hidden_units', default=512, type=int)
 parser.add_argument('--seq_length', default=16, type=int)
-parser.add_argument('--dropout_rate', default=0.1, type=float)
+parser.add_argument('--dropout_rate', default=0.2, type=float)
 parser.add_argument('--feature_dim', default=80, type=int)
 parser.add_argument('--beam_size', default=3, type=int)
 parser.add_argument('--lp_alpha', default=0.6, type=int)
 parser.add_argument('--max_target_length', default=50, type=int)
+
 parser.add_argument('--summary_step', default=200, type=int)
 parser.add_argument('--save_every_n', default=1000, type=int)
-parser.add_argument('--log_every_n', default=5, type=int)
+parser.add_argument('--log_every_n', default=1, type=int)
 parser.add_argument('--learning_rate', default=0.01, type=int)
 parser.add_argument('--min_learning_rate', default=1e-6, type=float)
 parser.add_argument('--dacay_step', default=3000, type=float)
@@ -74,7 +73,10 @@ class transformerTrain():
 
     def train(self):
         logging.info("# Session")
-        with tf.Session() as sess:
+        config = tf.compat.v1.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.95
+        # config.gpu_options.allow_growth=True   #不全部占满显存, 按需分配
+        with tf.compat.v1.Session(config=config) as sess:
             self.model.build_transformer()
             saver = tf.train.Saver(max_to_keep=args.save_nums)
             ckpt = tf.train.latest_checkpoint(self.model_path)
@@ -120,7 +122,6 @@ class Transformer_Model():
         self.num_heads = arg.num_heads
         self.num_blocks = arg.num_blocks
         self.position_max_length = arg.position_max_length
-        self.lr = arg.lr
         self.seq_length = arg.seq_length
         self.dropout_rate = arg.dropout_rate
         self.batch_size = arg.batch_size
@@ -226,12 +227,16 @@ class Transformer_Model():
             # 平均loss
             self.mean_loss = tf.reduce_sum(self.loss * self.istarget) / (tf.reduce_sum(self.istarget))
             # Training Scheme
-            self.current_learning = tf.train.polynomial_decay(self.learning_rate, self.global_step,
-                                                              self.dacay_step, self.min_learning_rate, power=0.5)
-
-            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.current_learning)
+            #
+            # self.current_learning = tf.train.polynomial_decay(self.learning_rate, self.global_step,
+            #                                                   self.dacay_step, self.min_learning_rate,
+            #                                                   cycle=True, power=0.5)
+            #
+            # self.optimizer = tf.train.AdamOptimizer(learning_rate=self.current_learning)
+            # self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
+            self.current_learning = self.learning_rate
+            self.optimizer = tf.train.AdamOptimizer(learning_rate=self.current_learning, beta1=0.9, beta2=0.98, epsilon=1e-8)
             self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
-
             # Summary
             tf.summary.scalar('mean_loss', self.mean_loss)
             self.merged = tf.summary.merge_all()

@@ -6,16 +6,16 @@ import tensorflow as tf
 import warnings
 import numpy as np
 import datetime
-
-sys.path.append('../')
-from lm_and_am.model.cnn_ctc import CNNCTCModel
-from lm_and_am.model.language_model import Language_Model
+home_dir = os.getcwd()
+sys.path.append(home_dir)
+from src.lm_and_am.model.cnn_ctc import CNNCTCModel
+from src.lm_and_am.model.language_model import Language_Model
 
 # 0.准备解码所需字典，参数需和训练一致，也可以将字典保存到本地，直接进行读取
-from lm_and_am.data_loader import GetData
-from util.data_util import GetEditDistance, acoustic_vocab, language_vocab
-from lm_and_am.const import Const
-from lm_and_am.hparams import DataHparams, AmHparams,  LmHparams
+from src.lm_and_am.data_loader import DataLoader
+from util.const import Const
+from util.hparams import DataHparams, AmLmHparams
+from util.utils import GetEditDistance
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')

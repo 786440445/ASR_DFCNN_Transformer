@@ -41,21 +41,21 @@ class Const:
     EOS_FLAG = '</sos>'
 
     # 噪声文件
-    NoiseDataTxT = '../data/noise_data.txt'
+    NoiseDataTxT = 'data/noise_data.txt'
 
     # 声学模型文件
-    AmModelFolder = '../model_and_log/logs_am/checkpoint/'
-    AmModelTensorBoard = '../model_and_log/logs_am/tensorboard/'
+    AmModelFolder = 'model_and_log/logs_am/checkpoint/'
+    AmModelTensorBoard = 'model_and_log/logs_am/tensorboard/'
     # 语言模型文件
-    LmModelFolder = '../model_and_log/logs_lm/checkpoint/'
-    LmModelTensorboard = '../model_and_log/logs_lm/tensorboard/'
+    LmModelFolder = 'model_and_log/logs_lm/checkpoint/'
+    LmModelTensorboard = 'model_and_log/logs_lm/tensorboard/'
 
     # Seq2Seq-transformer
-    TransformerFolder = '../model_and_log/logs_seq2seq/checkpoint/'
-    TransformerTensorboard = '../model_and_log/logs_seq2seq/tensorboard/'
+    TransformerFolder = 'model_and_log/logs_seq2seq/checkpoint/'
+    TransformerTensorboard = 'model_and_log/logs_seq2seq/tensorboard/'
 
     # 预测结果保存路径
-    PredResultFolder = '../model_and_log/pred/'
+    PredResultFolder = 'model_and_log/pred/'
 
     if ServerId == ServerIndex.Linux:
         SpeechDataPath = '../../../speech_data/'
@@ -70,7 +70,7 @@ class Const:
         NoiseOutPath = '../../../speech_data/noise_data/'
     elif ServerId == ServerIndex.Windows:
         SpeechDataPath = r'E:\speech_data'
-        NoiseOutPath = '../../../speech_data/noise_data/'
+        NoiseOutPath = 'E:\\speech_data\\noice_data'
 
 
 if ServerId == ServerIndex.Windows:

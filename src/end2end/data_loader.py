@@ -1,16 +1,17 @@
 import os, sys
-
+home_dir = os.getcwd()
 from random import shuffle
-from src.end2end.data_util import DataUtil
+from pathlib import Path
+import pandas as pd
 
-from util.data_util import *
+from util.data_util import DataUtil
+from util.utils import *
 from util.wav_util import *
 from util.const import Const
 
 
 class dataloader():
     def __init__(self, train_args, data_args):
-        self.start = 0
         self.batch_size = train_args.batch_size
         self.feature_dim = train_args.feature_dim
         self.feature_max_length = train_args.feature_max_length
@@ -26,14 +27,16 @@ class dataloader():
         self.aidatatang_1505 = data_args.aidatatang_1505
         self.prime = data_args.prime
         self.noise = data_args.noise
+        self.pinyin_dict = data_args.pinyin_dict
+        self.hanzi_dict = data_args.hanzi_dict
 
         self.lfr_m = data_args.lfr_m
         self.lfr_n = data_args.lfr_n
 
-        self.acoustic_vocab_size, self.pinyin2index, self.inde2pinyin = get_acoustic_vocab_list()
-        self.language_vocab_size, self.word2index, self.index2word = get_language_vocab_list()
+        self.acoustic_vocab_size, self.pinyin2index, self.inde2pinyin = self.get_acoustic_vocab_list()
+        self.language_vocab_size, self.word2index, self.index2word = self.get_language_vocab_list()
 
-        self.data = DataUtil(train_args, data_args)
+        self.data = DataUtil(data_args, train_args.batch_size, train_args.mode, train_args.data_length, train_args.shuffle)
 
         self.path_lst = self.data.path_lst
         self.pny_lst = self.data.pny_lst
@@ -76,6 +79,37 @@ class dataloader():
         except ValueError:
             raise ValueError
 
+    def wav_padding(self, wav_data_lst):
+        '''
+        wav的padding操作
+        :param wav_data_lst:
+        :return:
+        '''
+        feature_dim = wav_data_lst[0].shape[1]
+        # len(data)实际上就是求语谱图的第一维的长度，也就是n_frames
+        wav_lens = np.array([len(data) for data in wav_data_lst])
+        # 取一个batch中的最长
+        wav_max_len = max(wav_lens)
+        new_wav_data_lst = np.zeros((len(wav_data_lst), wav_max_len, feature_dim), dtype=np.float32)
+        for i in range(len(wav_data_lst)):
+            new_wav_data_lst[i, :wav_data_lst[i].shape[0], :] = wav_data_lst[i]
+        return new_wav_data_lst, wav_lens
+
+    def label_padding(self, label_data_lst, pad_idx):
+        '''
+        label的padding操作
+        :param label_data_lst:
+        :param pad_idx:
+        :return:
+        '''
+        label_lens = np.array([len(label) for label in label_data_lst])
+        max_label_len = max(label_lens)
+        new_label_data_lst = np.zeros((len(label_data_lst), max_label_len), dtype=np.int32)
+        new_label_data_lst += pad_idx
+        for i in range(len(label_data_lst)):
+            new_label_data_lst[i][:len(label_data_lst[i])] = label_data_lst[i]
+        return new_label_data_lst, label_lens
+
     def get_fbank_and_pinyin_data(self, index):
         """
         获取一条语音数据的Fbank与拼音信息
@@ -115,8 +149,8 @@ class dataloader():
             # Fbank特征提取函数(从feature_python)
             file = os.path.join(self.data_path, self.path_lst[index])
             noise_file = Const.NoiseOutPath + self.path_lst[index]
-            input_data = compute_fbank_from_file(file, feature_dim=self.feature_dim) if os.path.isfile(file) else \
-                compute_fbank_from_file(noise_file, feature_dim=self.feature_dim)
+            input_data = compute_fbank_from_file(file, self.feature_dim, sf_flag=True) if os.path.isfile(file) else \
+                compute_fbank_from_file(noise_file, self.feature_dim, sf_flag=True)
             label = self.han2id(self.han_lst[index])
             input_label = [Const.SOS] + label
             target_label = label + [Const.EOS]
@@ -258,9 +292,9 @@ class dataloader():
                         error_count.append(i)
                         continue
                 # label为decoder的输入，ground_truth为decoder的输出, label_data为decoder的输入
-                pad_wav_data, input_length = wav_padding(wav_data_lst)
-                pad_label_data, _ = label_padding(input_label_lst, Const.EOS)
-                pad_target_data, _ = label_padding(target_label_lst, Const.IGNORE)
+                pad_wav_data, input_length = self.wav_padding(wav_data_lst)
+                pad_label_data, _ = self.label_padding(input_label_lst, Const.EOS)
+                pad_target_data, _ = self.label_padding(target_label_lst, Const.IGNORE)
                 # 删除异常语音信息
                 if error_count != []:
                     pad_wav_data = np.delete(pad_wav_data, error_count, axis=0)
@@ -274,34 +308,56 @@ class dataloader():
                 yield inputs
         pass
 
-    def get_transformer_data(self, index):
-        """
-        获取一条语音数据的Fbank信息
-        :param index: 索引位置
-        :return:
-            input_data: 语音特征数据
-            data_length: 语音特征数据长度
-            label: 语音标签的向量
-        """
-        try:
-            # Fbank特征提取函数(从feature_python)
-            file = os.path.join(self.data_path, self.path_lst[index])
-            Y = self.han2id(self.han_lst[index])
-            noise_file = os.path.join(Const.NoiseOutPath, self.path_lst[index])
-            X = self.get_transformer_data_from_file(file) if os.path.isfile(file) else \
-                self.get_transformer_data_from_file(noise_file)
-            return X, Y
-        except ValueError:
-            raise ValueError
+    # def get_transformer_data(self, index):
+    #     """
+    #     获取一条语音数据的Fbank信息
+    #     :param index: 索引位置
+    #     :return:
+    #         input_data: 语音特征数据
+    #         data_length: 语音特征数据长度
+    #         label: 语音标签的向量
+    #     """
+    #     try:
+    #         # Fbank特征提取函数(从feature_python)
+    #         file = os.path.join(self.data_path, self.path_lst[index])
+    #         Y = self.han2id(self.han_lst[index])
+    #         noise_file = os.path.join(Const.NoiseOutPath, self.path_lst[index])
+    #         X = self.get_transformer_data_from_file(file) if os.path.isfile(file) else \
+    #             self.get_transformer_data_from_file(noise_file)
+    #         return X, Y
+    #     except ValueError:
+    #         raise ValueError
+    #
+    # def get_transformer_data_from_file(self, file):
+    #     try:
+    #         fbank = compute_fbank_from_file(file, feature_dim=self.feature_dim)
+    #         input_data = build_LFR_features(fbank, self.lfr_m, self.lfr_n)
+    #         input_data = np.expand_dims(input_data, axis=0)
+    #         return input_data
+    #     except ValueError:
+    #         raise ValueError
 
-    def get_transformer_data_from_file(self, file):
-        try:
-            fbank = compute_fbank_from_file(file, feature_dim=self.feature_dim)
-            input_data = build_LFR_features(fbank, self.lfr_m, self.lfr_n)
-            input_data = np.expand_dims(input_data, axis=0)
-            return input_data
-        except ValueError:
-            raise ValueError
+    # 声学模型, 语料库大小
+    def get_acoustic_vocab_list(self):
+        text = pd.read_table(Path(home_dir).joinpath(self.pinyin_dict), header=None)
+        symbol_list = text.iloc[:, 0].tolist()
+        symbol_list.append('_')
+        symbol_num = len(symbol_list)
+        pinyin2index = dict([pinyin, index] for index, pinyin in enumerate(symbol_list))
+        index2pinyin = dict([index, pinyin] for index, pinyin in enumerate(symbol_list))
+        return symbol_num, pinyin2index, index2pinyin
+
+    # 语言模型, 语料库大小
+    def get_language_vocab_list(self):
+        pd_data = pd.read_csv(os.path.join(home_dir, self.hanzi_dict), header=None)
+        hanzi_list = pd_data.T.values.tolist()[0]
+        word_list = Const.PAD_FLAG + ' ' + Const.SOS_FLAG + ' ' + Const.EOS_FLAG
+        word_list = word_list.split(' ')
+        word_list.extend(hanzi_list)
+        word_num = len(word_list)
+        word2index = dict([word, index] for index, word in enumerate(word_list))
+        index2word = dict([index, word] for index, word in enumerate(word_list))
+        return word_num, word2index, index2word
 
 
 if __name__ == "__main__":
