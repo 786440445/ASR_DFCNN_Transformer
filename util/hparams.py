@@ -7,7 +7,7 @@ class AmLmHparams:
     parser = argparse.ArgumentParser()
     # 初始学习率为0.001,10epochs后设置为0.001
     parser.add_argument('--am_lr', default=0.01, type=float)
-    parser.add_argument('--lm_lr', default=0.0001, type=float)
+    parser.add_argument('--lm_lr', default=0.003, type=float)
     parser.add_argument('--gpu_nums', default=1, type=int)
     parser.add_argument('--is_training', default=True, type=bool)
     parser.add_argument('--batch_size', default=64, type=int)

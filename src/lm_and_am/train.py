@@ -98,8 +98,8 @@ def train_language_model(data_args, am_hp):
     epochs = am_hp.epochs
     batch_size = am_hp.batch_size
 
-    data_util_train = DataUtil(data_args, batch_size=batch_size, mode='train', data_length=10000, shuffle=True)
-    data_util_eval = DataUtil(data_args, batch_size=batch_size, mode='dev', data_length=2000, shuffle=True)
+    data_util_train = DataUtil(data_args, batch_size=batch_size, mode='train', data_length=None, shuffle=True)
+    data_util_eval = DataUtil(data_args, batch_size=batch_size, mode='dev', data_length=None, shuffle=True)
     dataloader = DataLoader(data_util_train, data_args, am_hp)
     dataloader_eval = DataLoader(data_util_eval, data_args, am_hp)
     lm_model = Language_Model(am_hp, dataloader.acoustic_vocab_size, dataloader.language_vocab_size)
