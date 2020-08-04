@@ -17,7 +17,7 @@ class CNNCTCModel():
         # 神经网络最终输出的每一个字符向量维度的大小
         self.vocab_size = acoustic_vocab_size
         self.gpu_nums = args.gpu_nums
-        self.lr = args.lr
+        self.lr = args.am_lr
         self.feature_length = 200
         self.is_training = args.is_training
         self._model_init()
@@ -40,9 +40,9 @@ class CNNCTCModel():
         self.h7 = Dropout(0.3)(self.h7)
         self.outputs = dense(self.vocab_size, activation='softmax')(self.h7)
 
-        # 采用全局平均池化代替Dense
+        # # 采用全局平均池化代替Dense
         # self.h6 = nin(self.h5, self.vocab_size)
-        # [10, 200, 25, 1424]
+        # # [10, 200, 25, 1424]
         # self.h7 = global_avg_pool(self.h6)
         # self.model.outputs = tf.nn.softmax(self.h7)
 

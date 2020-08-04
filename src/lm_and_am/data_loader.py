@@ -4,10 +4,11 @@ import pandas as pd
 import math
 import os
 import soundfile as sf
+from scipy import sparse
 
 from random import shuffle
 from util.const import Const
-from util.wav_util import compute_fbank_from_api
+from util.wav_util import compute_fbank_from_api, compute_fbank_from_file
 from util.data_util import DataUtil
 
 home_dir = os.getcwd()
@@ -25,7 +26,7 @@ class DataLoader():
         self.lfr_m = data_args.lfr_m
         self.lfr_n = data_args.lfr_n
 
-        self.acoustic_vocab_size, self.pinyin2index, self.inde2pinyin = self.get_acoustic_vocab_list()
+        self.acoustic_vocab_size, self.pinyin2index, self.index2pinyin = self.get_acoustic_vocab_list()
         self.language_vocab_size, self.word2index, self.index2word = self.get_language_vocab_list()
 
         self.data = data_util
@@ -103,7 +104,7 @@ class DataLoader():
         # batch_wav_data.shape = (10 1600 200 1), inputs_length.shape = (10,)
         batch_wav_data = np.zeros((self.batch_size, self.feature_max_length, 200, 1), dtype=np.float)
         # batch_label_data.shape = (10 64) ,label_length.shape = (10,)
-        batch_label_data = np.zeros((self.batch_size, 64), dtype=np.int64)
+        batch_label_data = np.zeros((self.batch_size, 64, self.acoustic_vocab_size), dtype=np.int32)
         # length
         input_length = []
         label_length = []
@@ -136,7 +137,8 @@ class DataLoader():
                 input_length.append([data_length])
                 label_length.append([len_label])
                 batch_wav_data[i, 0:len(input_data)] = input_data
-                batch_label_data[i, 0:len_label] = label
+                for index, id in enumerate(label):
+                    batch_label_data[i][index][id] = 1
             except ValueError:
                 error_count.append(i)
                 continue
@@ -144,17 +146,26 @@ class DataLoader():
         if error_count != []:
             batch_wav_data = np.delete(batch_wav_data, error_count, axis=0)
             batch_label_data = np.delete(batch_label_data, error_count, axis=0)
-        label_length = np.mat(label_length)
-        input_length = np.mat(input_length)
+
+        # print(batch_label_data)
+        indptr = [0]
+        indices = []
+        data = []
+        vocabulary = {}
+        for batch_data in batch_label_data:
+            for term in batch_data:
+                for id in term:
+                    index = vocabulary.setdefault(id, len(vocabulary))
+                    indices.append(index)
+                    data.append(1)
+                indptr.append(len(indices))
+        sparse_target_y = sparse.csr_matrix(np.ndarray(batch_label_data, dtype=np.int32))
+        print(sparse_target_y)
+        label_length = np.array(label_length)
+        input_length = np.array(input_length)
         # CTC 输入长度0-1600//8+1
         # label label真实长度
-        inputs = {'the_inputs': batch_wav_data,
-                  'the_labels': batch_label_data,
-                  'input_length': input_length,
-                  'label_length': label_length,
-                  }
-        outputs = {'ctc': np.zeros((self.batch_size - len(error_count), 1), dtype=np.float32)}
-        return inputs, outputs
+        return batch_wav_data, input_length, sparse_target_y, label_length
 
     def get_lm_batch(self):
         '''
@@ -172,19 +183,20 @@ class DataLoader():
             max_len = max([len(self.pny_lst[index].strip().split(' ')) for index in index_list])
             input_data = []
             label_data = []
+            input_length = []
             for i in index_list:
-                print(self.pny_lst[i])
-                print(self.han_lst[i])
                 try:
                     py_vec = self.pny2id(self.pny_lst[i]) + [0] * (max_len - len(self.pny_lst[i].strip().split(' ')))
                     han_vec = self.han2id(self.han_lst[i]) + [0] * (max_len - len(self.han_lst[i].strip()))
                     input_data.append(py_vec)
                     label_data.append(han_vec)
+                    input_length.append(len(self.pny_lst[i]))
                 except ValueError:
                     continue
             input_data = np.array(input_data)
             label_data = np.array(label_data)
-            yield input_data, label_data
+            input_length = np.array(input_length)
+            yield input_data, input_length, label_data
 
     def get_lm_batch_old(self):
         '''
@@ -204,6 +216,35 @@ class DataLoader():
                 [self.han2id(line) + [0] * (max_len - len(line)) for line in label_batch])
             yield input_batch, label_batch
 
+    def get_fbank_and_pinyin_data(self, index):
+        """
+        获取一条语音数据的Fbank与拼音信息
+        :param index: 索引位置
+        :return:
+            input_data: 语音特征数据
+            data_length: 语音特征数据长度
+            label: 语音标签的向量
+        """
+        try:
+            # Fbank特征提取函数(从feature_python)
+            file = os.path.join(Const.SpeechDataPath, self.path_lst[index])
+            noise_file = Const.NoiseOutPath + self.path_lst[index]
+            fbank = compute_fbank_from_file(file) if os.path.isfile(file) else\
+                compute_fbank_from_file(noise_file)
+            input_data = fbank.reshape([fbank.shape[0], fbank.shape[1], 1])
+            data_length = input_data.shape[0] // 8 + 1
+            label = self.pny2id(self.pny_lst[index])
+            label = np.array(label)
+            len_label = len(label)
+            # 将错误数据进行抛出异常,并处理
+            if input_data.shape[0] > self.feature_max_length:
+                raise ValueError
+            if len_label > 64 or len_label > data_length:
+                raise ValueError
+            return input_data, data_length, label, len_label
+        except ValueError:
+            raise ValueError
+
     def __getitem__(self, index):
         # 生成每个batch数据，这里就根据自己对数据的读取方式进行发挥了
         # 生成batch_size个索引
@@ -212,12 +253,12 @@ class DataLoader():
         batch_datas = [self.path_lst[k] for k in batch_indexs]
         py_label_datas = [self.pny_lst[k] for k in batch_indexs]
         # 生成数据
-        X, y = self.data_generation(batch_datas, py_label_datas)
-        return X, y
+        feature_input, logits_length, sparse_target_y, target_length = self.data_generation(batch_datas, py_label_datas)
+        return feature_input, logits_length, sparse_target_y, target_length
 
     def __len__(self):
-        # 计算每一个epoch的迭代次数
-        return math.ceil(len(self.path_lst) / float(self.batch_size))
+        return len(self.path_lst) // self.batch_size
+
 
 if __name__ == '__main__':
     pass

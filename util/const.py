@@ -47,6 +47,7 @@ class Const:
     AmModelFolder = 'model_and_log/logs_am/checkpoint/'
     AmModelTensorBoard = 'model_and_log/logs_am/tensorboard/'
     # 语言模型文件
+    CRFLmModelFolder = 'model_and_log/logs_lm/crf_lm/'
     LmModelFolder = 'model_and_log/logs_lm/checkpoint/'
     LmModelTensorboard = 'model_and_log/logs_lm/tensorboard/'
 
@@ -55,7 +56,7 @@ class Const:
     TransformerTensorboard = 'model_and_log/logs_seq2seq/tensorboard/'
 
     # 预测结果保存路径
-    PredResultFolder = 'model_and_log/pred/'
+    PredResultFolder = 'model_and_log\\pred'
 
     if ServerId == ServerIndex.Linux:
         SpeechDataPath = '../../../speech_data/'

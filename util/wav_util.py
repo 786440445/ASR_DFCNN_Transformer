@@ -27,7 +27,7 @@ def compute_fbank_from_api(signal, sample_rate, nfilt=200):
 
     """
     feature = logfbank(signal, sample_rate, nfilt=nfilt)
-    # feature = preprocessing.scale(feature)
+    feature = preprocessing.scale(feature)
     return feature
 
 

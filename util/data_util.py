@@ -1,7 +1,11 @@
-import os
+import os, sys
 home_dir = os.getcwd()
+sys.path.append(home_dir)
+
 import pandas as pd
 from collections import Counter
+from util.hparams import AmLmHparams
+from util.hparams import DataHparams
 
 class DataUtil():
     def __init__(self, data_args, batch_size, mode='train', data_length=None, shuffle=False):
@@ -93,5 +97,19 @@ class DataUtil():
         self.han_lst = self.han_lst[:stay_index]
 
     def generate_dict(self):
-        han_counter = Counter(*self.han_lst)
-        print(han_counter.items()[:10])
+        han_list = []
+        for han in self.han_lst:
+            han_list.extend(list(han))
+        han_counter = Counter(han_list)
+        han_counter = sorted(han_counter.items(), key=lambda x: x[1], reverse=True)
+        word_vocab = [word for word, nums in han_counter if nums > 0]
+        print(len(word_vocab))
+        with open(os.path.join(home_dir, 'new_hanzi.txt'), 'w', encoding='utf-8') as f:
+            f.writelines('\n'.join(word_vocab))
+
+
+if __name__ == '__main__':
+    params = AmLmHparams().args
+    data_args = DataHparams.args
+    data_util_train = DataUtil(data_args, batch_size=params.batch_size, mode='train', data_length=None, shuffle=True)
+    data_util_train.generate_dict()
