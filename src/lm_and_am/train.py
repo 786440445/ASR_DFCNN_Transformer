@@ -119,8 +119,8 @@ def train_language_model(data_args, am_hp):
             latest = tf.train.latest_checkpoint(Const.LmModelFolder)
             if latest != None:
                 print('loading language model...')
-                add_num = int(latest.split('_')[-2])
                 saver.restore(sess, latest)
+                add_num = int(latest.split('_')[-1])
         writer = tf.summary.FileWriter(Const.LmModelTensorboard, tf.get_default_graph())
         old_acc = 0
         for epoch in range(epochs):
@@ -132,12 +132,11 @@ def train_language_model(data_args, am_hp):
                 cost, _ = sess.run([lm_model.mean_loss, lm_model.train_op], feed_dict=feed)
                 total_loss += cost
                 if i % 10 == 0:
-                    print("epoch: %d step: %d/%d  train loss=6%f" % (epoch+1, i, batch_num, cost))
+                    print("epoch: %d step: %d/%d  train loss=%.6f" % (epoch + 1, i, batch_num, cost))
             summary = sess.run(merged, feed_dict=feed)
             writer.add_summary(summary, epoch * batch_num + i)
             print('epochs', epoch+1, ': average loss = ', total_loss / batch_num)
-            saver.save(sess, Const.LmModelFolder + 'model_%d_%.3f.ckpt' % (epoch+1 + add_num, total_loss / batch_num))
-
+            saver.save(sess, Const.LmModelFolder + 'model_%d_%.3f.ckpt' % (epoch + 1 + add_num, total_loss / batch_num))
             ### test acc
             total_acc = 0
             total_loss = 0
@@ -146,14 +145,13 @@ def train_language_model(data_args, am_hp):
                 input_batch, _, label_batch = next(batch)
                 feed = {lm_model.x: input_batch, lm_model.y: label_batch}
                 loss, acc = sess.run([lm_model.mean_loss, lm_model.acc], feed_dict=feed)
-                print(acc)
                 total_loss += cost
                 total_acc += acc
             acc = total_acc / eval_batch_num
             loss = total_loss / eval_batch_num
-            print("epoch: %d test acc:4%f  test loss=6%f" % (epoch+1, acc, loss))
+            print("epoch: %d test acc:%.4f  test loss=%.6f" % (epoch+1, acc, loss))
             if acc > old_acc:
-                saver.save(sess, os.path.join(Const.LmModelFolder, 'final_model.ckpt'))
+                saver.save(sess, os.path.join(Const.LmModelFolder, 'final_model_%d.ckpt' % (epoch + 1)))
                 old_acc = acc
         writer.close()
 
