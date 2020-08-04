@@ -25,7 +25,7 @@ def train_acoustic_model(data_args, am_hp):
     :return:
     """
     epochs = am_hp.epochs
-    batch_size = am_hp.batch_size
+    batch_size = am_hp.am_batch_size
     data_util_train = DataUtil(data_args, batch_size=batch_size, mode='train', data_length=None, shuffle=True)
     data_util_dev = DataUtil(data_args, batch_size=batch_size, mode='dev', data_length=None, shuffle=True)
 
@@ -96,8 +96,7 @@ def train_language_model(data_args, am_hp):
     :return:
     """
     epochs = am_hp.epochs
-    batch_size = am_hp.batch_size
-
+    batch_size = am_hp.lm_batch_size
     data_util_train = DataUtil(data_args, batch_size=batch_size, mode='train', data_length=None, shuffle=True)
     data_util_eval = DataUtil(data_args, batch_size=batch_size, mode='dev', data_length=None, shuffle=True)
     dataloader = DataLoader(data_util_train, data_args, am_hp)

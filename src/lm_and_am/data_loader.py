@@ -17,7 +17,8 @@ cur_path = os.path.dirname(__file__)
 
 class DataLoader():
     def __init__(self, data_util, data_args, train_args):
-        self.batch_size = train_args.batch_size
+        self.am_batch_size = train_args.am_batch_size
+        self.lm_batch_size = train_args.lm_batch_size
         self.feature_dim = train_args.feature_dim
         self.feature_max_length = train_args.feature_max_length
 
@@ -101,9 +102,9 @@ class DataLoader():
 
     def data_generation(self, batch_datas, py_label_datas):
         # batch_wav_data.shape = (10 1600 200 1), inputs_length.shape = (10,)
-        batch_wav_data = np.zeros((self.batch_size, self.feature_max_length, 200, 1), dtype=np.float)
+        batch_wav_data = np.zeros((self.am_batch_size, self.feature_max_length, 200, 1), dtype=np.float)
         # batch_label_data.shape = (10 64) ,label_length.shape = (10,)
-        batch_label_data = np.zeros((self.batch_size, 64, self.acoustic_vocab_size), dtype=np.int32)
+        batch_label_data = np.zeros((self.am_batch_size, 64, self.acoustic_vocab_size), dtype=np.int32)
         # length
         input_length = []
         label_length = []
@@ -174,10 +175,10 @@ class DataLoader():
         shuffle_list = [i for i in range(len(self.pny_lst))]
         if self.shuffle == True:
             shuffle(shuffle_list)
-        batch_num = len(self.pny_lst) // self.batch_size
+        batch_num = len(self.pny_lst) // self.lm_batch_size
         for k in range(batch_num):
-            begin = k * self.batch_size
-            end = begin + self.batch_size
+            begin = k * self.lm_batch_size
+            end = begin + self.lm_batch_size
             index_list = shuffle_list[begin:end]
             max_len = max([len(self.pny_lst[index].strip().split(' ')) for index in index_list])
             input_data = []
@@ -202,10 +203,10 @@ class DataLoader():
         训练语言模型batch数据，拼音到汉字
         :return:
         '''
-        batch_num = len(self.pny_lst) // self.batch_size
+        batch_num = len(self.pny_lst) // self.lm_batch_size
         for k in range(batch_num):
-            begin = k * self.batch_size
-            end = begin + self.batch_size
+            begin = k * self.lm_batch_size
+            end = begin + self.lm_batch_size
             input_batch = self.pny_lst[begin:end]
             label_batch = self.han_lst[begin:end]
             max_len = max([len(line) for line in input_batch])
@@ -247,7 +248,7 @@ class DataLoader():
     def __getitem__(self, index):
         # 生成每个batch数据，这里就根据自己对数据的读取方式进行发挥了
         # 生成batch_size个索引
-        batch_indexs = self.indexes[index * self.batch_size:(index + 1) * self.batch_size]
+        batch_indexs = self.indexes[index * self.lm_batch_size:(index + 1) * self.lm_batch_size]
         # 根据索引获取datas集合中的数据
         batch_datas = [self.path_lst[k] for k in batch_indexs]
         py_label_datas = [self.pny_lst[k] for k in batch_indexs]
@@ -256,7 +257,7 @@ class DataLoader():
         return feature_input, logits_length, sparse_target_y, target_length
 
     def __len__(self):
-        return len(self.path_lst) // self.batch_size
+        return len(self.path_lst) // self.lm_batch_size
 
 
 if __name__ == '__main__':
