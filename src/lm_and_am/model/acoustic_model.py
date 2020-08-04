@@ -49,7 +49,7 @@ class CNNCTCModel():
         # 这里input_length指的是网络softmax输出后的结果长度，也就是经过ctc计算的loss的输入长度。
         # 由于网络的时域维度由1600经过三个池化变成200，因此output的长度为200，因此input_length<=200
         logits = tf.reshape(self.logits, shape=[1, 0, 2])
-        self.loss = tf.nn.ctc_loss_v2(self.target_py, logits, self.target_length, self.logits_length,
+        self.loss = tf.nn.ctc_loss(self.target_py, logits, self.target_length, self.logits_length,
                                       blank_index=self.acoustic_vocab_size-1)
         self.mean_loss = tf.reduce_mean(self.loss)
         self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(self.logits, self.target_length)

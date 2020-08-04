@@ -16,7 +16,7 @@ class AmLmHparams:
     parser.add_argument('--feature_max_length', default=1600, type=int)
     # 语言模型参数
     parser.add_argument('--num_heads', default=8, type=int)
-    parser.add_argument('--num_blocks', default=12, type=int)
+    parser.add_argument('--num_blocks', default=6, type=int)
     parser.add_argument('--position_max_length', default=100, type=int)
     parser.add_argument('--max_length', default=100, type=int)
     parser.add_argument('--hidden_units', default=512, type=int)
@@ -37,12 +37,12 @@ class DataHparams:
     parser.add_argument('--aishell', default=True, type=bool)
     parser.add_argument('--prime', default=True, type=bool)
     parser.add_argument('--stcmd', default=True, type=bool)
-    parser.add_argument('--aidatatang', default=True, type=bool)
+    parser.add_argument('--aidatatang', default=False, type=bool)
     parser.add_argument('--aidatatang_1505', default=True, type=bool)
     parser.add_argument('--noise', default=False, type=bool)
 
     parser.add_argument('--pinyin_dict', default='mixdict.txt', type=str)
-    parser.add_argument('--hanzi_dict', default='new_hanzi.txt', type=str)
+    parser.add_argument('--hanzi_dict', default='hanzi.txt', type=str)
 
     # Low Frame Rate (stacking and skipping frames)
     parser.add_argument('--lfr_m', default=4, type=int, help='Low Frame Rate: number of frames to stack')

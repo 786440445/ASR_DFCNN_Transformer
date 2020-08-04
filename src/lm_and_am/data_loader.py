@@ -92,8 +92,7 @@ class DataLoader():
     def get_language_vocab_list(self):
         pd_data = pd.read_csv(os.path.join(home_dir, self.hanzi_dict), header=None)
         hanzi_list = pd_data.T.values.tolist()[0]
-        word_list = Const.PAD_FLAG + ' ' + Const.SOS_FLAG + ' ' + Const.EOS_FLAG
-        word_list = word_list.split(' ')
+        word_list = [Const.PAD_FLAG]
         word_list.extend(hanzi_list)
         word_num = len(word_list)
         word2index = dict([word, index] for index, word in enumerate(word_list))
