@@ -8,13 +8,13 @@ import numpy as np
 import datetime
 home_dir = os.getcwd()
 sys.path.append(home_dir)
-from src.lm_and_am.model.cnn_ctc import CNNCTCModel
+from src.lm_and_am.model.acoustic_model3 import CNNCTCModel
 from src.lm_and_am.model.language_model import Language_Model
 from src.lm_and_am.data_loader import DataLoader
 
 # 0.准备解码所需字典，参数需和训练一致，也可以将字典保存到本地，直接进行读取
 from util.const import Const
-from util.hparams import DataHparams, AmLmHparams
+from util.hparams import AmDataHparams, LmDataHparams, AmLmHparams
 from util.utils import GetEditDistance
 from util.data_util import DataUtil
 
@@ -22,7 +22,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings('ignore')
 
 
-def speech_test(am_model, lm_model, num, sess):
+def speech_test(am_model, lm_model, am_sess, lm_sess, num):
     # 3. 进行测试-------------------------------------------
     num_data = len(dataloader.pny_lst)
     length = test_data_util.data_length
@@ -38,20 +38,26 @@ def speech_test(am_model, lm_model, num, sess):
         print('\nthe ', i+1, 'th example.')
         # 载入训练好的模型，并进行识别
         index = (ran_num + i) % num_data
+        # try:
+        # 声学模型预测
         try:
-            hanzi = dataloader.han_lst[index]
-            hanzi_vec = [dataloader.word2index.get(word, Const.PAD) for word in hanzi]
-            inputs, input_length, label, _ = dataloader.get_fbank_and_pinyin_data(index)
-            pinyin_ids = am_model.predict(inputs, input_length)
-            pinyin = ' '.join([dataloader.index2pinyin[k] for k in pinyin_ids])
-            y = dataloader.pny_lst[index]
+            with am_sess.as_default():
+                hanzi = dataloader.han_lst[index]
+                hanzi_vec = [dataloader.word2index.get(word, Const.PAD) for word in hanzi]
+                inputs, input_length, label, _ = dataloader.get_fbank_and_pinyin_data(index)
+                decoded = am_sess.run([am_model.decoded[0]], feed_dict={
+                    am_model.wav_input: inputs,
+                    am_model.logits_length: input_length})
+                pinyin_ids = tf.sparse_tensor_to_dense(decoded[0], default_value=0).eval(session=lm_sess)
+                pinyin = ' '.join([dataloader.index2pinyin[k] for k in pinyin_ids[0]])
+                y = dataloader.pny_lst[index]
 
             # 语言模型预测
-            with sess.as_default():
-                py_in = pinyin_ids.reshape(1, -1)
+            with lm_sess.as_default():
+                py_in = np.array(pinyin_ids)
                 lm_model.is_training = False
-                lm_model.dropout_rate = 0.1
-                han_pred = sess.run(lm_model.preds, {lm_model.x: py_in})
+                lm_model.dropout_rate = 0
+                han_pred = lm_sess.run(lm_model.preds, {lm_model.x: py_in})
                 han = ''.join(dataloader.index2word.get(idx) for idx in han_pred[0])
         except ValueError:
             continue
@@ -67,7 +73,7 @@ def speech_test(am_model, lm_model, num, sess):
 
         words_n = label.shape[0]
         words_num += words_n  # 把句子的总字数加上
-        py_edit_distance = GetEditDistance(label, pinyin_ids)
+        py_edit_distance = GetEditDistance(label, pinyin_ids[0])
         # 拼音距离
         if (py_edit_distance <= words_n):  # 当编辑距离小于等于句子字数时
             word_error_num += py_edit_distance  # 使用编辑距离作为错误字数
@@ -98,32 +104,35 @@ def speech_test(am_model, lm_model, num, sess):
 if __name__ == '__main__':
     # 测试长度
     # 1. 准备测试所需数据， 不必和训练数据一致，通过设置data_args.data_type测试
-    data_params = DataHparams()
-    parser = data_params.parser
-    data_hp = parser.parse_args()
-    data_hp.shuffle = True
-    data_hp.data_length = None
+    am_data_params = AmDataHparams().args
+    lm_data_params = LmDataHparams().args
 
     # 2.声学模型-----------------------------------
     hparams = AmLmHparams()
     parser = hparams.parser
     am_hp = parser.parse_args()
-    test_data_util = DataUtil(data_hp, am_hp.batch_size, mode='test', data_length=None, shuffle=False)
-    dataloader = DataLoader(test_data_util, data_hp, am_hp)
-    am_model = CNNCTCModel(am_hp, dataloader.acoustic_vocab_size)
+    am_hp.dropout_rate = 0
+    am_hp.is_training = False
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1)
 
+    test_data_util = DataUtil(am_data_params, am_hp.am_batch_size, mode='test', data_length=None, shuffle=True)
+    dataloader = DataLoader(test_data_util, am_data_params, am_hp)
     print('loading acoustic model...')
-    am_model.load_model('model_22-7.31')
+    am_graph = tf.Graph()
+    with am_graph.as_default():
+        am_model = CNNCTCModel(am_hp, dataloader.acoustic_vocab_size, dataloader.language_vocab_size)
+        lm_saver = tf.train.Saver()
+        am_sess = tf.Session(graph=am_graph, config=tf.ConfigProto(gpu_options=gpu_options))
+        latest = tf.train.latest_checkpoint(Const.AmModelFolder)
+        lm_saver.restore(am_sess, latest)
 
     # 3.语言模型-----------------------------------
     print('loading language model...')
     lm_model = Language_Model(am_hp, dataloader.acoustic_vocab_size, dataloader.language_vocab_size)
-    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.1)
-    sess = tf.Session(graph=lm_model.graph, config=tf.ConfigProto(gpu_options=gpu_options))
+    lm_sess = tf.Session(graph=lm_model.graph, config=tf.ConfigProto(gpu_options=gpu_options))
     with lm_model.graph.as_default():
         saver = tf.train.Saver()
-    latest = tf.train.latest_checkpoint(Const.LmModelFolder)
-    print(latest)
-    saver.restore(sess, latest)
-    test_count = 10
-    speech_test(am_model, lm_model, test_count, sess)
+        latest = tf.train.latest_checkpoint(Const.LmModelFolder)
+        saver.restore(lm_sess, latest)
+        test_count = 5000
+        speech_test(am_model, lm_model, am_sess, lm_sess, test_count)

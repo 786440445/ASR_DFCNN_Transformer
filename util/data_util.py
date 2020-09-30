@@ -3,9 +3,11 @@ home_dir = os.getcwd()
 sys.path.append(home_dir)
 
 import pandas as pd
+import numpy as np
+from random import shuffle
 from collections import Counter
 from util.hparams import AmLmHparams
-from util.hparams import DataHparams
+from util.hparams import AmDataHparams
 
 class DataUtil():
     def __init__(self, data_args, batch_size, mode='train', data_length=None, shuffle=False):
@@ -86,15 +88,22 @@ class DataUtil():
             self.pny_lst.extend(pny)
             self.han_lst.extend(hanzi)
 
+        if self.shuffle:
+            print('------ shuffle data ------')
+            stay_list = np.arange(len(self.path_lst))
+            shuffle(stay_list)
+            self.path_lst = [self.path_lst[stay_index] for stay_index in stay_list]
+            self.pny_lst = [self.pny_lst[stay_index] for stay_index in stay_list]
+            self.han_lst = [self.han_lst[stay_index] for stay_index in stay_list]
+
         if self.data_length:
-            self.path_lst = self.path_lst[:self.data_length]
-            self.pny_lst = self.pny_lst[:self.data_length]
-            self.han_lst = self.han_lst[:self.data_length]
-        # 保留batch size的倍数
-        stay_index = len(self.path_lst) // self.batch_size * self.batch_size
-        self.path_lst = self.path_lst[:stay_index]
-        self.pny_lst = self.pny_lst[:stay_index]
-        self.han_lst = self.han_lst[:stay_index]
+            stay_index = self.data_length//self.batch_size*self.batch_size
+        else:
+            stay_index = len(self.path_lst)//self.batch_size*self.batch_size
+
+        self.path_lst = np.array(self.path_lst[:stay_index])
+        self.pny_lst = np.array(self.pny_lst[:stay_index])
+        self.han_lst = np.array(self.han_lst[:stay_index])
 
     def generate_dict(self):
         han_list = []
@@ -110,6 +119,6 @@ class DataUtil():
 
 if __name__ == '__main__':
     params = AmLmHparams().args
-    data_args = DataHparams.args
+    data_args = AmDataHparams.args
     data_util_train = DataUtil(data_args, batch_size=params.batch_size, mode='train', data_length=None, shuffle=True)
     data_util_train.generate_dict()

@@ -6,7 +6,7 @@ sys.path.append(home_dir)
 from util.data_util import DataUtil
 from util.noise import add_noise
 from util.const import Const
-from util.hparams import AmLmHparams, DataHparams
+from util.hparams import AmLmHparams, AmDataHparams
 
 
 def delete_files(pathDir):
@@ -21,9 +21,7 @@ def delete_files(pathDir):
 
 
 def main():
-    hparams = DataHparams()
-    parser = hparams.parser
-    data_args = parser.parse_args()
+    data_args = AmDataHparams().args
 
     rate = 1
     out_path = Const.NoiseOutPath

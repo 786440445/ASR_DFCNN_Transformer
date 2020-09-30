@@ -7,17 +7,14 @@ home_dir = os.getcwd()
 sys.path.append(home_dir)
 cur_path = os.path.dirname(__file__)
 import numpy as np
-from src.lm_and_am.model.acoustic_model2 import CNNCTCModel
+from src.lm_and_am.model.ctc_attention import CNNCTCModel
 from src.lm_and_am.model.language_model import Language_Model
-from src.lm_and_am.data_loader import DataLoader
+from src.lm_and_am.data_loader2 import DataLoader
 from util.hparams import AmLmHparams, AmDataHparams, LmDataHparams
 from util.data_util import DataUtil
 from util.const import Const
 
 warnings.filterwarnings('ignore')
-config = tf.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = 0.95
-config.gpu_options.allow_growth = True
 
 
 def train_acoustic_model(data_args, am_hp):
@@ -41,8 +38,8 @@ def train_acoustic_model(data_args, am_hp):
         # 数据读取处理部分
         dataset = tf.data.Dataset.from_generator(train_dataloader.am_generator,
                                                  output_types=(tf.float32, tf.int32, tf.int32, tf.int32, tf.int32, tf.int32))
-        dataset = dataset.map(lambda x, y, z, w, m, n: (x, y, z, w, m, n), num_parallel_calls=32).prefetch(buffer_size=30000)
-        with tf.Session(config=config) as sess:
+        dataset = dataset.map(lambda x, y, z, w, m, n: (x, y, z, w, m, n), num_parallel_calls=64).prefetch(buffer_size=10000)
+        with tf.Session() as sess:
             print('Start training')
             latest = tf.train.latest_checkpoint(Const.AmModelFolder)
             if latest != None:
@@ -57,34 +54,33 @@ def train_acoustic_model(data_args, am_hp):
                 total_loss = 0
                 iterator_train = dataset.make_one_shot_iterator().get_next()
                 for train_step in range(batch_nums):
-                    input_x_batch, input_length_batch, target_y_batch, seq_length_batch, _, _ = sess.run(iterator_train)
+                    input_x_batch, input_length_batch, _, _, target_y_batch, seq_length_batch = sess.run(iterator_train)
                     feed = {acoustic_model.wav_input: input_x_batch,
-                            acoustic_model.logits_length: input_length_batch,
-                            acoustic_model.target_py: target_y_batch,
-                            acoustic_model.target_length: seq_length_batch,
-                            acoustic_model.drop_rate: am_hp.dropout_rate}
+                            acoustic_model.wav_length: input_length_batch,
+                            acoustic_model.target_hanzi: target_y_batch,
+                            acoustic_model.target_hanzi_length: seq_length_batch}
                     loss, mean_loss, lr, summary, label_err, _ = sess.run([acoustic_model.loss,
-                                                                           acoustic_model.mean_loss,
-                                                                           acoustic_model.current_learning,
-                                                                           acoustic_model.summary,
-                                                                           acoustic_model.label_err,
-                                                                           acoustic_model.train_op], feed_dict=feed)
+                                                                     acoustic_model.mean_loss,
+                                                                     acoustic_model.current_learning,
+                                                                     acoustic_model.summary,
+                                                                     acoustic_model.label_err,
+                                                                     acoustic_model.train_op], feed_dict=feed)
                     total_loss += mean_loss
                     if (train_step + 1) % 2 == 0:
-                        print('epoch: %d    step: %d/%d    mean_loss: %.4f    total_loss: %.4f  lr: %.6f   label_err: %.4f'
+                        print('epoch: %d    step: %d/%d  mean_loss: %.4f    total_loss: %.4f  lr: %.6f   label_err: %.4f'
                               % (epoch+1, train_step+1, batch_nums, mean_loss, total_loss/(train_step+1), lr, label_err))
+                        print(loss)
                 writer.add_summary(summary, epoch)
 
                 # 测试集测试
                 total_err = 0
                 total_loss = 0
                 eval_steps = len(dev_dataloader)
-                for feature_input, logits_length, target_y, target_length, _, _ in dev_dataloader.am_generator():
+                for feature_input, logits_length, _, _, target_y, target_length in dev_dataloader.am_generator():
                     feed = {acoustic_model.wav_input: feature_input,
-                            acoustic_model.logits_length: logits_length,
-                            acoustic_model.target_py: target_y,
-                            acoustic_model.target_length: target_length,
-                            acoustic_model.drop_rate: 0}
+                            acoustic_model.wav_length: logits_length,
+                            acoustic_model.target_hanzi: target_y,
+                            acoustic_model.target_hanzi_length: target_length}
                     mean_loss, label_err = sess.run([acoustic_model.mean_loss, acoustic_model.label_err], feed_dict=feed)
                     total_loss += mean_loss
                     total_err += label_err

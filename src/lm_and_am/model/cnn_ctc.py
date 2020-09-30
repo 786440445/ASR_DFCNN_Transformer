@@ -16,7 +16,6 @@ class CNNCTCModel():
     def __init__(self, args, acoustic_vocab_size):
         # 神经网络最终输出的每一个字符向量维度的大小
         self.vocab_size = acoustic_vocab_size
-        self.gpu_nums = args.gpu_nums
         self.lr = args.am_lr
         self.feature_length = 200
         self.is_training = args.is_training
@@ -59,11 +58,10 @@ class CNNCTCModel():
             ([self.labels, self.outputs, self.input_length, self.label_length])
         self.ctc_model = Model(inputs=[self.labels, self.inputs, self.input_length, self.label_length], outputs=self.loss_out)
 
+
     def opt_init(self):
         adam = Adam(lr=self.lr, beta_1=0.9, beta_2=0.999, decay=0, epsilon=10e-8)
         # sgd = SGD(lr=self.lr, decay=1e-6, momentum=0.9, nesterov=True, clipnorm=5)
-        if self.gpu_nums > 1:
-            self.ctc_model=multi_gpu_model(self.ctc_model, gpus=self.gpu_nums)
         self.ctc_model.compile(loss={'ctc': lambda y_true, output: output}, optimizer=adam)
 
     def predict(self, data_input, length, batch_size=1):

@@ -10,14 +10,14 @@ from datetime import datetime
 from src.end2end.transformer import *
 from src.end2end.data_loader import dataloader
 from util.const import Const
-from util.hparams import DataHparams
+from util.hparams import TransDataHparams
 
 parser = argparse.ArgumentParser()
 # 初始学习率为0.001,10epochs后设置为0.0001
 parser.add_argument('--gpu_nums', default=1, type=int)
 parser.add_argument('--mode', default='train', type=str)
 parser.add_argument('--is_training', default=True, type=bool)
-parser.add_argument('--batch_size', default=10, type=int)
+parser.add_argument('--batch_size', default=16, type=int)
 parser.add_argument('--epochs', default=100, type=int)
 parser.add_argument('--feature_max_length', default=1600, type=int)
 parser.add_argument('--dimension', default=80, type=int)
@@ -30,7 +30,7 @@ parser.add_argument('--log_dir', default='./log', type=str)
 # 声学模型参数
 parser.add_argument('--num_heads', default=8, type=int)
 parser.add_argument('--num_blocks', default=6, type=int)
-parser.add_argument('--position_max_length', default=500, type=int)
+parser.add_argument('--position_max_length', default=600, type=int)
 parser.add_argument('--hidden_units', default=512, type=int)
 parser.add_argument('--seq_length', default=16, type=int)
 parser.add_argument('--dropout_rate', default=0.2, type=float)
@@ -41,8 +41,8 @@ parser.add_argument('--max_target_length', default=50, type=int)
 
 parser.add_argument('--summary_step', default=200, type=int)
 parser.add_argument('--save_every_n', default=1000, type=int)
-parser.add_argument('--log_every_n', default=1, type=int)
-parser.add_argument('--learning_rate', default=0.01, type=int)
+parser.add_argument('--log_every_n', default=2, type=int)
+parser.add_argument('--learning_rate', default=0.001, type=int)
 parser.add_argument('--min_learning_rate', default=1e-6, type=float)
 parser.add_argument('--dacay_step', default=3000, type=float)
 
@@ -52,7 +52,7 @@ parser.add_argument('--concat', default=4, type=int)
 parser.add_argument('--death_rate', default=0.5, type=int)
 parser.add_argument('--test', default=False, type=bool)
 args = parser.parse_args()
-data_args = DataHparams()
+data_args = TransDataHparams()
 
 logging.basicConfig(level=logging.INFO)
 warnings.filterwarnings('ignore')
@@ -88,13 +88,19 @@ class transformerTrain():
 
             summary_writer = tf.compat.v1.summary.FileWriter(self.log_dir, sess.graph)
             train_steps = 0
+
+            # 数据读取处理部分
+            dataset = tf.data.Dataset.from_generator(self.data_loader.get_transformer_batch,
+                                                     output_types=(tf.float32, tf.int32, tf.int32))
+            dataset = dataset.map(lambda x, y, z: (x, y, z), num_parallel_calls=32).prefetch(buffer_size=10000)
+            batch_nums = len(self.data_loader)
             for epoch in range(args.epochs):
-                batch_data = self.data_loader.get_transformer_batch()
-                for inputs_data in batch_data:
-                    train_steps += 1
-                    feed = {self.model.x_input: inputs_data['the_inputs'],
-                            self.model.y_input: inputs_data['the_labels'],
-                            self.model.y_target: inputs_data['ground_truth'],
+                iterator_train = dataset.make_one_shot_iterator().get_next()
+                for train_step in range(batch_nums):
+                    the_inputs, the_labels, ground_truth = sess.run(iterator_train)
+                    feed = {self.model.x_input: the_inputs,
+                            self.model.y_input: the_labels,
+                            self.model.y_target: ground_truth,
                             self.model.learning_rate: self.learning_rate}
                     train_loss, summary, lr, _ = sess.run([self.model.mean_loss, self.model.merged,
                                                            self.model.current_learning, self.model.train_op], feed_dict=feed)
@@ -110,7 +116,7 @@ class transformerTrain():
                         saver.save(sess, os.path.join(dirpath, 'final_model'))
                     if train_steps % self.log_every_n == 0:
                         now_time = datetime.now()
-                        msg = 'Epoch: {0:>6}, Iter: {1:>6}, LR:{2:>10.6f} Train Loss: {3:>6.2}, Time: {4}'
+                        msg = 'Epoch: {0:>6}, Iter: {1:>6}, LR:{2:>10.6f} Train Loss: {3:>6.6f}, Time: {4}'
                         print(msg.format(epoch, train_steps, lr, train_loss, now_time))
 
 
@@ -138,7 +144,7 @@ class Transformer_Model():
         self.x_input = tf.placeholder(tf.float32, shape=(self.batch_size, None, 4 * self.dimension))
         self.y_input = tf.placeholder(tf.int32, shape=(self.batch_size, None))
         self.y_target = tf.placeholder(tf.int32, shape=(self.batch_size, None))
-        self.learning_rate = tf.placeholder(tf.float64)
+        self.learning_rate = tf.placeholder(tf.float32)
         self.global_step = tf.Variable(0, trainable=False, name='global_step')
 
         if self.is_training:
@@ -203,7 +209,6 @@ class Transformer_Model():
                                                is_training=self.is_training,
                                                causality=True,
                                                reuse=tf.AUTO_REUSE)
-
                 # Feed Forward
                 self.outputs = feedforward(self.dec, num_units=[4 * self.hidden_units, self.hidden_units], reuse=tf.AUTO_REUSE)
 
@@ -228,13 +233,13 @@ class Transformer_Model():
             self.mean_loss = tf.reduce_sum(self.loss * self.istarget) / (tf.reduce_sum(self.istarget))
             # Training Scheme
             #
-            # self.current_learning = tf.train.polynomial_decay(self.learning_rate, self.global_step,
-            #                                                   self.dacay_step, self.min_learning_rate,
-            #                                                   cycle=True, power=0.5)
+            self.current_learning = tf.train.polynomial_decay(self.learning_rate, self.global_step,
+                                                              self.dacay_step, self.min_learning_rate,
+                                                              cycle=True, power=0.5)
             #
             # self.optimizer = tf.train.AdamOptimizer(learning_rate=self.current_learning)
             # self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
-            self.current_learning = self.learning_rate
+            # self.current_learning = self.learning_rate
             self.optimizer = tf.train.AdamOptimizer(learning_rate=self.current_learning, beta1=0.9, beta2=0.98, epsilon=1e-8)
             self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
             # Summary

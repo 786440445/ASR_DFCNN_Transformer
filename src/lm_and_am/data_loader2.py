@@ -97,14 +97,15 @@ class DataLoader():
         hanzi_list = pd_data.T.values.tolist()[0]
         word_list = [Const.PAD_FLAG]
         word_list.extend(hanzi_list)
+        # word_list.append('_')
         word_num = len(word_list)
         word2index = dict([word, index] for index, word in enumerate(word_list))
         index2word = dict([index, word] for index, word in enumerate(word_list))
         return word_num, word2index, index2word
 
     def data_generation(self, batch_datas, py_label_datas, han_label_datas):
-        # batch_wav_data.shape = (10 1600 200 1), inputs_length.shape = (10,)
-        batch_wav_data = np.zeros((self.am_batch_size, self.feature_max_length, 200, 1), dtype=np.float)
+        # batch_wav_data.shape = (10 1600 320 1), inputs_length.shape = (10,)
+        batch_wav_data = np.zeros((self.am_batch_size, self.feature_max_length, self.feature_dim*4, 1), dtype=np.float)
         # batch_label_data.shape = (10 64) ,label_length.shape = (10,)
         batch_label_data = np.zeros((self.am_batch_size, 64), dtype=np.int32)
         batch_han_data = np.zeros((self.am_batch_size, 64), dtype=np.int32)
@@ -126,10 +127,13 @@ class DataLoader():
                 else:
                     print("file path Error")
                     return 0
-                fbank = compute_fbank_from_api(signal, sample_rate)
-                input_data = fbank.reshape([fbank.shape[0], fbank.shape[1], 1])
+                fbank = compute_fbank_from_api(signal, sample_rate, nfilt=self.feature_dim)
+                # print(np.shape(fbank))
+                input_data = build_LFR_features(fbank, self.lfr_m, self.lfr_n)
+                # print(np.shape(input_data))
+                input_data = input_data.reshape([input_data.shape[0], input_data.shape[1], 1])
                 wav_length = input_data.shape[0]
-                data_length = min(200, math.ceil(wav_length//8+1))
+                data_length = math.ceil(wav_length/4)
                 seq = han_label_datas[i]
                 seq_ids = np.array(self.han2id(seq))
                 pinyin = py_label_datas[i]
@@ -138,7 +142,7 @@ class DataLoader():
                 # 将错误数据进行抛出异常,并处理
                 if wav_length > self.feature_max_length:
                     raise ValueError
-                if len_label > 64 or len_label >= data_length:
+                if len_label > 64 or len_label > data_length:
                     raise ValueError
                 input_length.append(data_length)
                 label_length.append(len_label)

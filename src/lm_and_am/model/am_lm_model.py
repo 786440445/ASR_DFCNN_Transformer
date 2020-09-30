@@ -10,6 +10,8 @@
 import os
 home_dir = os.getcwd()
 
+from tensorflow.python.ops import math_ops as tf_math_ops
+from keras import backend as K
 from src.end2end.transformer import *
 from util.const import Const
 
@@ -30,7 +32,6 @@ class CNNCTCModel():
         self.num_heads = args.num_heads
         self.num_blocks = args.num_blocks
         self.position_max_length = args.position_max_length
-        self.lr = args.lm_lr
         self.dropout_rate = args.dropout_rate
 
         self.init_placeholder()
@@ -42,62 +43,49 @@ class CNNCTCModel():
     def init_placeholder(self):
         self.wav_input = tf.placeholder(tf.float32, shape=[None, self.feature_max_length, self.feature_dim, 1], name='wav_input')
         self.wav_length = tf.placeholder(tf.int32, shape=[None], name='logits_length')
-        self.target_py = tf.sparse_placeholder(tf.int32)
-        self.target_py_length = tf.placeholder(tf.int32, shape=[None], name='target_length')
+        self.target_py = tf.placeholder(tf.int32, shape=[None, None], name='target_py')
+        self.target_py_length = tf.placeholder(tf.int32, shape=[None], name='target_py_length')
         self.target_hanzi = tf.placeholder(tf.int32, shape=[None, None], name='target_hanzi')
         self.target_hanzi_length = tf.placeholder(tf.int32, shape=[None], name='target_hanzi_length')
+        self.global_step = tf.Variable(0, name='global_step', trainable=False)
 
     def build_model(self):
-        # [None, L=200, 3200]
-        am_out = self.am_model()
-        lm_in = tf.layers.dense(am_out, self.hidden_units)
-        self.language_model(lm_in)
+        # [None, L=200, 512]
+        self.am_model()
+        self.language_model()
 
     def am_model(self):
         self.h1 = cnn_cell(32, self.wav_input)
         self.h2 = cnn_cell(64, self.h1)
-        self.h3 = cnn_cell(128, self.h2)
-        self.h4 = cnn_cell(128, self.h3, pool=False)
-        self.h5 = cnn_cell(128, self.h4, pool=False)
+        self.h3 = cnn_cell(128, self.h2, nin_flag=True, nin_size=32)
+        self.h4 = cnn_cell(128, self.h3, nin_flag=True, nin_size=32, pool=False)
+        self.h5 = cnn_cell(128, self.h4, nin_flag=True, nin_size=32, pool=False)
         # [10, 200, 25, 128]
         shape_size = [-1, self.h5.get_shape().as_list()[1], self.h5.get_shape().as_list()[2] * self.h5.get_shape().as_list()[3]]
         self.h6 = tf.reshape(self.h5, shape=shape_size)
         self.h6 = dropout(self.h6, 0.3)
         self.h7 = dense(self.h6, 128)
-        self.h6 = dropout(self.h7, 0.3)
-        self.am_out = dense(self.h7, self.acoustic_vocab_size, activation='softmax')
-        return self.h6
-        # # 采用全局平均池化代替Dense
-        # self.h6 = nin(self.h5, self.vocab_size)
-        # # [10, 200, 25, 1424]
-        # self.h7 = global_avg_pool(self.h6)
-        # self.model.outputs = tf.nn.softmax(self.h7)
+        self.h7 = dropout(self.h7, 0.3)
+        # [B, 200, 128]
+        self.am_logits = dense(self.h7, self.acoustic_vocab_size, activation='softmax')
 
-    def calc_lm_loss(self):
-        # 这里input_length指的是网络softmax输出后的结果长度，也就是经过ctc计算的loss的输入长度。
-        # 由于网络的时域维度由1600经过三个池化变成200，因此output的长度为200，因此input_length<=200
-        logits = tf.reshape(self.am_out, shape=[1, 0, 2])
-        self.am_loss = tf.nn.ctc_loss_v2(self.target_py, logits, self.target_py_length, self.wav_length,
-                                         blank_index=self.acoustic_vocab_size-1)
-        self.am_mean_loss = tf.reduce_mean(self.am_loss)
-        self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(self.logits, self.target_py_length)
-        self.wrong_nums = tf.edit_distance(tf.cast(self.decoded[0], tf.int32), self.target_py)
+        with tf.variable_scope('am_loss'):
+            # 这里input_length指的是网络softmax输出后的结果长度，也就是经过ctc计算的loss的输入长度。
+            # 由于网络的时域维度由1600经过三个池化变成200，因此output的长度为200，因此input_length<=200
+            self.sparse_labels = tf.cast(tf.contrib.layers.dense_to_sparse(self.target_py), tf.int32)  # 没有标记0
+            self.am_logits = tf_math_ops.log(tf.transpose(self.am_logits, perm=[1, 0, 2]) + K.epsilon())
+            self.am_loss = tf.expand_dims(tf.nn.ctc_loss_v2(self.target_py, self.am_logits, self.target_py_length,
+                                                            self.wav_length, blank_index=self.acoustic_vocab_size - 1), 1)
+            self.am_mean_loss = tf.reduce_mean(self.am_loss)
+            self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(self.am_logits, self.target_py_length)
+            self.lm_out = tf.sparse_to_dense(self.decoded[0], default_value=0)
+            self.distance = tf.edit_distance(tf.cast(self.decoded[0], tf.int32), self.sparse_labels)
+            self.label_err = tf.reduce_mean(self.distance, name='label_error_rate')
 
-    def opt_init(self):
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr, beta1=0.9, beta2=0.999, epsilon=1e-8)
-        self.global_step = tf.Variable(0, name='global_step', trainable=False)
-        self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
-        # Summary
-        tf.summary.scalar('mean_loss', self.mean_loss)
-        self.summary = tf.summary.merge_all()
-
-    def load_am_model(self, model, sess):
-        sess.load_model(os.path.join(home_dir, 'model_and_log\\logs_am\\checkpoint', model + '.ckpt'))
-        return sess
-
-    def language_model(self, lm_in):
+    def language_model(self):
         # embedding
         # X的embedding + position的embedding
+        lm_in = self.am_out
         position_emb = embedding(tf.tile(tf.expand_dims(tf.range(tf.shape(lm_in)[1]), 0), [tf.shape(lm_in)[0], 1]),
                                  vocab_size=self.position_max_length, num_units=self.hidden_units, zero_pad=False,
                                  scale=False, scope="enc_pe")
@@ -124,44 +112,52 @@ class CNNCTCModel():
                 self.outputs = feedforward(self.enc, num_units=[4 * self.hidden_units, self.hidden_units])
 
         # Final linear projection
-        self.logits = tf.layers.dense(self.outputs, self.language_vocab_size)
-        self.preds = tf.to_int32(tf.argmax(self.logits, axis=-1))
-        self.istarget = tf.to_float(tf.not_equal(self.target_hanzi, Const.PAD))
-        self.acc = tf.reduce_sum(tf.to_float(tf.equal(self.preds, self.target_hanzi)) * self.istarget) / (
-            tf.reduce_sum(self.istarget))
-        tf.summary.scalar('acc', self.acc)
+        # self.outputs.shape=[B, 200, 6524]
+        self.lm_logits = tf.layers.dense(self.outputs, self.language_vocab_size, activation='softmax')
+        self.sparse_labels = tf.cast(tf.contrib.layers.dense_to_sparse(self.target_hanzi), tf.int32)  # 没有标记0
+        self.lm_logits = tf_math_ops.log(tf.transpose(self.lm_logits, perm=[1, 0, 2]) + K.epsilon())
+        self.lm_loss = tf.expand_dims(tf.nn.ctc_loss_v2(self.target_py, self.lm_logits, self.target_py_length,
+                                                        self.wav_length, blank_index=self.acoustic_vocab_size - 1), 1)
+        self.lm_mean_loss = tf.reduce_mean(self.lm_loss)
+        self.decoded, self.log_prob = tf.nn.ctc_greedy_decoder(self.lm_logits, self.target_py_length)
+        self.distance = tf.edit_distance(tf.cast(self.decoded[0], tf.int32), self.sparse_labels)
+        self.han_wer = tf.reduce_mean(self.distance, name='han_wer')
+        tf.summary.scalar('acc', self.han_wer)
 
-    def calc_am_loss(self):
-        # Loss label平滑
-        self.y_smoothed = label_smoothing(tf.one_hot(self.target_hanzi, depth=self.language_vocab_size))
-        # loss计算，预测结果与平滑值的交叉熵
-        self.lm_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.logits, labels=self.y_smoothed)
-        # 平均loss
-        self.lm_mean_loss = tf.reduce_sum(self.lm_loss * self.istarget) / (tf.reduce_sum(self.istarget))
-        # 合并loss
-        self.mean_loss = self.am_mean_loss + self.lm_mean_loss
-        # Training Scheme
+        # self.preds = tf.to_int32(tf.argmax(self.lm_logits, axis=-1))
+        # self.istarget = tf.to_float(tf.not_equal(self.target_hanzi, Const.PAD))
+        # self.acc = tf.reduce_sum(tf.to_float(tf.equal(self.preds, self.target_hanzi)) * self.istarget) / (
+        #     tf.reduce_sum(self.istarget))
+        # tf.summary.scalar('acc', self.acc)
+
+    def opt_init(self):
+        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr, beta1=0.9, beta2=0.999, epsilon=1e-8)
         self.global_step = tf.Variable(0, name='global_step', trainable=False)
-        self.optimizer = tf.train.AdamOptimizer(learning_rate=self.lr, beta1=0.9, beta2=0.98, epsilon=1e-8)
         self.train_op = self.optimizer.minimize(self.mean_loss, global_step=self.global_step)
-
         # Summary
         tf.summary.scalar('mean_loss', self.mean_loss)
-        self.merged = tf.summary.merge_all()
+        self.summary = tf.summary.merge_all()
 
+    def calc_loss(self):
+        # Loss label平滑
+
+        with tf.variable_scope('lm_loss'):
+            # self.y_smoothed = label_smoothing(tf.one_hot(self.target_hanzi, depth=self.language_vocab_size))
+            # loss计算，预测结果与平滑值的交叉熵
+            # self.lm_loss = tf.nn.softmax_cross_entropy_with_logits_v2(logits=self.lm_logits, labels=self.y_smoothed)
+            # 平均loss
+            # self.lm_mean_loss = tf.reduce_sum(self.lm_loss * self.istarget) / (tf.reduce_sum(self.istarget))
+            # 合并loss
+            self.mean_loss = self.am_mean_loss + self.lm_mean_loss
 
 
 # ============================模型组件=================================
 def conv1x1(input, filters):
-    return tf.layers.conv2d(input, filters=filters, kernel_size=(1, 1),
-                            use_bias=True, activation='relu',
-                            padding='same', kernel_initializer='he_normal')
+    return tf.layers.conv2d(input, filters=filters, kernel_size=(1, 1), use_bias=True, activation='relu', padding='same')
 
 
 def conv2d(input, filters):
-    return tf.layers.conv2d(input, filters=filters, kernel_size=(3, 3),
-                            use_bias=True, activation='relu',
-                            padding='same', kernel_initializer='he_normal')
+    return tf.layers.conv2d(input, filters=filters, kernel_size=(3, 3), use_bias=True, activation='relu', padding='same')
 
 
 def batch_norm(input):
@@ -173,7 +169,7 @@ def maxpool(input):
 
 
 def dense(input, units, activation='relu'):
-    return tf.layers.dense(input, units, activation=activation, use_bias=True, kernel_initializer='he_normal')
+    return tf.layers.dense(input, units, activation=activation, use_bias=True)
 
 
 def dropout(inpux, rate):

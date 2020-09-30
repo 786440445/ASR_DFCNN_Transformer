@@ -44,12 +44,16 @@ class Const:
     NoiseDataTxT = 'data/noise_data.txt'
 
     # 声学模型文件
-    AmModelFolder = 'model_and_log/logs_am/checkpoint/'
-    AmModelTensorBoard = 'model_and_log/logs_am/tensorboard/'
+    AmModelFolder = 'model_and_log\\logs_am\\checkpoint\\'
+    AmModelTensorboard = 'model_and_log\\logs_am\\tensorboard\\'
     # 语言模型文件
     CRFLmModelFolder = 'model_and_log/logs_lm/crf_lm/'
-    LmModelFolder = 'model_and_log/logs_lm/checkpoint/'
-    LmModelTensorboard = 'model_and_log/logs_lm/tensorboard/'
+    LmModelFolder = 'model_and_log\\logs_lm\\checkpoint\\'
+    LmModelTensorboard = 'model_and_log\\logs_lm\\tensorboard\\'
+
+    # end2end
+    End2EndModelFolder = 'model_and_log\\end2end\\checkpoint\\'
+    End2EndTensorboard = 'model_and_log\\end2end\\tensorboard\\'
 
     # Seq2Seq-transformer
     TransformerFolder = 'model_and_log/logs_seq2seq/checkpoint/'

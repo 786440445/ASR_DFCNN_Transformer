@@ -66,20 +66,33 @@ def decode_ctc(num_result, input_length):
     return r1
 
 
-def convert_dense_to_sparse():
-    with tf.variable_scope(scope, 'dense_to_sparse_tight', [tensor]) as sc:
-        tensor = tf.convert_to_tensor(tensor)
-        indices = tf.where(
-            tf.math.not_equal(tensor, tf.constant(eos_token,
-                                                  tensor.dtype)))
-        # Need to verify there are *any* indices that are not eos_token
-        # If none, give shape [1,0].
-        shape = tf.cond(tf.not_equal(tf.shape(indices)[0],
-                                     tf.constant(0)),  # Found valid indices?
-                        true_fn=lambda: tf.cast(tf.reduce_max(indices, axis=0), \
-                                                tf.int64) + 1,
-                        false_fn=lambda: tf.cast([1, 0], tf.int64))
-        values = tf.gather_nd(tensor, indices)
-        outputs = tf.SparseTensor(indices, values, shape)
-        return layers_utils.collect_named_outputs(outputs_collections,
-                                                  sc.name, outputs)
+def sparse_tuple_from(sequences, dtype=np.int32):
+    """Create a sparse representention of x.
+    Args:
+        sequences: a list of lists of type dtype where each element is a sequence
+    Returns:
+        A tuple with (indices, values, shape)
+    """
+    indices = []
+    values = []
+
+    for n, seq in enumerate(sequences):
+        indices.extend(zip([n] * len(seq), range(len(seq))))
+        values.extend(seq)
+
+    indices = np.asarray(indices, dtype=np.int64)
+    values = np.asarray(values, dtype=dtype)
+    shape = np.asarray([len(sequences), np.asarray(indices).max(0)[1] + 1], dtype=np.int64)
+
+    return indices, values, shape
+
+
+if __name__ == '__main__':
+    sequences = np.array([[1, 2, 0, 0, 0, 0],
+                          [1, 2, 0, 0, 0, 0],
+                          [1, 2, 0, 0, 0, 0],
+                          [1, 2, 0, 0, 0, 0]])
+    indices, values, shape = sparse_tuple_from(sequences)
+    print(indices)
+    print(values)
+    print(shape)
