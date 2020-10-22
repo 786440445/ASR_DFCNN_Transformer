@@ -150,6 +150,8 @@ def multihead_attention(queries, keys,
         # Restore shape 多头机制结合
         outputs = tf.concat(tf.split(outputs, num_heads, axis=0), axis=2)  # (N, T_q, C)
         # Residual connection 参差链接，将query加起来。
+        outputs = tf.layers.dense(outputs, d_model, activation=tf.nn.relu, use_bias=False)
+        outputs = tf.layers.dropout(outputs, rate=dropout_rate, training=tf.convert_to_tensor(is_training))
         outputs += queries
         # Normalize layerNorm
         outputs = layer_norm(outputs)
@@ -192,11 +194,14 @@ def multihead_attention_decoder(queries, keys,
         # Restore shape 多头机制结合
         outputs = tf.concat(tf.split(outputs, num_heads, axis=0), axis=2)  # (N, T_q, C)
         # Residual connection 参差链接，将query加起来。
+        outputs = tf.layers.dense(outputs, d_model, activation=tf.nn.relu, use_bias=False)
+        outputs = tf.layers.dropout(outputs, rate=dropout_rate, training=tf.convert_to_tensor(is_training))
         outputs += queries
+        outputs = layer_norm(outputs)
     return outputs
 
 
-def feedforward(inputs, num_units, scope="positionwise_ffnn", reuse=None):
+def feedforward(inputs, num_units, dropout_rate, is_training, scope="positionwise_ffnn", reuse=None):
     '''Point-wise feed forward net.
 
     Args:
@@ -218,6 +223,7 @@ def feedforward(inputs, num_units, scope="positionwise_ffnn", reuse=None):
         params = {"inputs": outputs, "filters": num_units[1], "kernel_size": 1, "activation": None, "use_bias": True}
         outputs = tf.layers.conv1d(**params)
 
+        outputs = tf.layers.dropout(outputs, rate=dropout_rate, training=tf.convert_to_tensor(is_training))
         # Residual connection 残差+LN
         outputs += inputs
         # Normalize

@@ -8,7 +8,7 @@ import numpy as np
 import datetime
 home_dir = os.getcwd()
 sys.path.append(home_dir)
-from src.lm_and_am.model.acoustic_model3 import CNNCTCModel
+from src.lm_and_am.model.acoustic_model2 import CNNCTCModel
 from src.lm_and_am.model.language_model import Language_Model
 from src.lm_and_am.data_loader import DataLoader
 

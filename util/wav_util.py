@@ -10,7 +10,7 @@ from sklearn import preprocessing
 from util.noise import add_noise
 
 
-def compute_fbank_from_file(file, feature_dim=200, sf_flag=True):
+def compute_fbank_from_file(file, feature_dim=200, sf_flag=False):
     if sf_flag:
         signal, sample_rate = sf.read(file)
     else:
