@@ -1,11 +1,9 @@
 import os
 home_dir = os.getcwd()
 
-from src.end2end.transformer import *
+from end2end.transformer import *
 from tensorflow.python.ops import math_ops as tf_math_ops
 from keras import backend as K
-from keras.layers import Lambda
-from tensorflow.python.ops import ctc_ops as ctc
 import warnings
 warnings.filterwarnings('ignore')
 

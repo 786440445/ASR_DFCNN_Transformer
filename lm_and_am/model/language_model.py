@@ -1,4 +1,4 @@
-from src.end2end.transformer import *
+from end2end.transformer import *
 from util.const import Const
 
 
@@ -26,10 +26,8 @@ class Language_Model():
             # X的embedding + position的embedding
             self.emb = embedding(self.x, vocab_size=self.input_vocab_size, num_units=self.hidden_units, scale=True,
                                  scope="enc_embed")
-            position_emb = embedding(
-                tf.tile(tf.expand_dims(tf.range(tf.shape(self.x)[1]), 0), [tf.shape(self.x)[0], 1]),
-                vocab_size=self.position_max_length, num_units=self.hidden_units, zero_pad=False, scale=False,
-                scope="enc_pe")
+            position_emb = embedding(tf.tile(tf.expand_dims(tf.range(tf.shape(self.x)[1]), 0), [tf.shape(self.x)[0], 1]),
+                vocab_size=self.position_max_length, num_units=self.hidden_units, zero_pad=False, scale=False, scope="enc_pe")
             self.enc = self.emb + position_emb
 
             # Dropout
@@ -37,7 +35,7 @@ class Language_Model():
                                          rate=self.dropout_rate,
                                          training=tf.convert_to_tensor(self.is_training))
 
-            # Encoder Blocks
+            # Blocks
             for i in range(self.num_blocks):
                 with tf.variable_scope("num_blocks_{}".format(i)):
                     # Multihead Attention
@@ -47,23 +45,7 @@ class Language_Model():
                                                    num_heads=self.num_heads,
                                                    dropout_rate=self.dropout_rate,
                                                    is_training=self.is_training,
-                                                   causality=False,
-                                                   reuse=tf.AUTO_REUSE)
-
-                    # Feed Forward
-                    self.outputs = feedforward(self.enc, num_units=[4 * self.hidden_units, self.hidden_units])
-
-            # Decoder Blocks
-            for i in range(self.num_blocks):
-                with tf.variable_scope("num_blocks_{}".format(i)):
-                    # Multihead Attention
-                    self.enc = multihead_attention(queries=self.enc,
-                                                   keys=self.enc,
-                                                   d_model=self.hidden_units,
-                                                   num_heads=self.num_heads,
-                                                   dropout_rate=self.dropout_rate,
-                                                   is_training=self.is_training,
-                                                   causality=False,
+                                                   causality=True,
                                                    reuse=tf.AUTO_REUSE)
 
                     # Feed Forward
@@ -73,8 +55,7 @@ class Language_Model():
             self.logits = tf.layers.dense(self.outputs, self.label_vocab_size)
             self.preds = tf.to_int32(tf.argmax(self.logits, axis=-1))
             self.istarget = tf.to_float(tf.not_equal(self.y, Const.PAD))
-            self.acc = tf.reduce_sum(tf.to_float(tf.equal(self.preds, self.y)) * self.istarget) / (
-                tf.reduce_sum(self.istarget))
+            self.acc = tf.reduce_sum(tf.to_float(tf.equal(self.preds, self.y)) * self.istarget) / (tf.reduce_sum(self.istarget))
             tf.summary.scalar('acc', self.acc)
 
             if self.is_training:

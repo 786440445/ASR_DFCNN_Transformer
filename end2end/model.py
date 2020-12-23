@@ -7,8 +7,8 @@ import logging
 import warnings
 from datetime import datetime
 
-from src.end2end.transformer import *
-from src.end2end.data_loader import dataloader
+from end2end.transformer import *
+from end2end.data_loader import dataloader
 from util.const import Const
 from util.hparams import TransDataHparams
 

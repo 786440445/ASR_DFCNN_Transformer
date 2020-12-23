@@ -1,15 +1,13 @@
 import tensorflow as tf
-import keras
 import os
 import warnings
 import sys
 home_dir = os.getcwd()
 sys.path.append(home_dir)
 cur_path = os.path.dirname(__file__)
-import numpy as np
-from src.lm_and_am.model.acoustic_model2 import CNNCTCModel
-from src.lm_and_am.model.language_model import Language_Model
-from src.lm_and_am.data_loader import DataLoader
+from lm_and_am.model.acoustic_model2 import CNNCTCModel
+from lm_and_am.model.language_model import Language_Model
+from lm_and_am.data_loader import DataLoader
 from util.hparams import AmLmHparams, AmDataHparams, LmDataHparams
 from util.data_util import DataUtil
 from util.const import Const

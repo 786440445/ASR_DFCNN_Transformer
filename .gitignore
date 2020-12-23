@@ -1,8 +1,7 @@
-pydub-0.23.1/
 model_and_log/
 .*/__pychache__
 .idea
 data/
-src/end2end/log
-src/end2end/model
+end2end/log
+end2end/model
 *.pyc

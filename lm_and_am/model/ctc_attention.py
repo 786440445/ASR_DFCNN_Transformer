@@ -12,8 +12,7 @@ home_dir = os.getcwd()
 
 from tensorflow.python.ops import math_ops as tf_math_ops
 from keras import backend as K
-from src.end2end.transformer import *
-from util.const import Const
+from end2end.transformer import *
 
 
 class CNNCTCModel():
